@@ -1,0 +1,31 @@
+server:
+  host: 127.0.0.1
+  port: 8000
+auth:
+  admin_password: admin
+  token_ttl_seconds: 86400
+database:
+  path: data/k12.db
+k12:
+  workspace_id: 631e1603-06cf-4f0b-b79b-d09fbfcfe98d
+  invite_mode: request
+  auto_invite: true
+registration:
+  provider: openai
+  concurrency: 1
+  proxy: ''
+  auth_core_path: F:/game/openai-cpa/openai-cpa-main
+  max_otp_retries: 3
+  otp_poll_attempts: 20
+  otp_poll_interval_seconds: 3
+  http_retries: 2
+  http_timeout_seconds: 30
+  ssl_verify: true
+imap:
+  host: outlook.office365.com
+  port: 993
+  timeout_seconds: 20
+  folders:
+  - INBOX
+  - Junk
+  token_url: https://login.microsoftonline.com/common/oauth2/v2.0/token

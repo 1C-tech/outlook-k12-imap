@@ -1,0 +1,170 @@
+.login-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+}
+.login-panel {
+  width: min(380px, 100%);
+  display: grid;
+  gap: 14px;
+  padding: 28px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+.login-panel h1 { margin: 0 0 8px; font-size: 24px; }
+.error-text { color: var(--error); margin: 0; }
+.version { color: var(--muted); font-size: 12px; text-align: center; }
+.app-shell { min-height: 100vh; display: flex; flex-direction: column; }
+.topbar {
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 18px;
+  border-bottom: 1px solid var(--line);
+  background: var(--surface);
+}
+.topbar-actions { display: flex; gap: 8px; align-items: center; }
+.icon-btn { width: 36px; height: 36px; padding: 0; }
+.text-btn { min-width: 64px; }
+.workspace { min-height: calc(100vh - 56px); display: flex; }
+.sidebar {
+  width: 220px;
+  flex: 0 0 220px;
+  padding: 12px;
+  border-right: 1px solid var(--line);
+  background: var(--surface);
+}
+.sidebar button {
+  width: 100%;
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 6px;
+  border-color: transparent;
+  text-align: left;
+}
+.sidebar button.active {
+  color: var(--primary);
+  background: color-mix(in srgb, var(--primary) 12%, transparent);
+  border-color: color-mix(in srgb, var(--primary) 35%, transparent);
+}
+.content {
+  flex: 1;
+  padding: 20px;
+  overflow: auto;
+}
+.notice-bar {
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--warn);
+  background: var(--surface);
+  border-radius: 6px;
+  color: var(--text);
+}
+.view { display: grid; gap: 16px; max-width: 1280px; }
+.view-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.button-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.view-head h2 { margin: 0; font-size: 22px; }
+.view-head.compact h2 { font-size: 18px; }
+.filters {
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) 150px 120px auto;
+  gap: 10px;
+}
+.stats-line, .empty { color: var(--muted); }
+.log-list {
+  display: grid;
+  gap: 8px;
+}
+.log-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 90px 170px minmax(180px, 1fr) 2fr;
+  gap: 10px;
+  align-items: center;
+  text-align: left;
+}
+.level {
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 999px;
+  padding: 3px 8px;
+  width: fit-content;
+}
+.level-info { color: #1d4ed8; background: #dbeafe; }
+.level-success { color: #166534; background: #dcfce7; }
+.level-warn { color: #92400e; background: #fef3c7; }
+.level-error { color: #991b1b; background: #fee2e2; }
+.import-box { min-height: 180px; resize: vertical; font-family: Consolas, monospace; }
+.result-bar {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  border-radius: 8px;
+}
+.status {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 3px 8px;
+  font-size: 12px;
+}
+.status-success { color: var(--success); }
+.status-failed { color: var(--error); }
+.settings-grid {
+  max-width: 720px;
+}
+.settings-grid label {
+  display: grid;
+  gap: 6px;
+}
+.settings-grid label.inline {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.detail-dialog {
+  width: min(720px, calc(100vw - 32px));
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+}
+.detail-dialog pre {
+  max-height: 50vh;
+  overflow: auto;
+  white-space: pre-wrap;
+}
+.mobile-only { display: none; }
+
+@media (max-width: 800px) {
+  .mobile-only { display: inline-block; }
+  .workspace { display: block; }
+  .sidebar {
+    display: none;
+    position: absolute;
+    z-index: 10;
+    width: min(280px, 90vw);
+    min-height: calc(100vh - 56px);
+  }
+  .sidebar.open { display: block; }
+  .content { padding: 14px; }
+  .filters { grid-template-columns: 1fr; }
+  .log-row { grid-template-columns: 72px 1fr; }
+  .log-row span:nth-child(2), .log-row span:nth-child(3) { display: none; }
+  table { display: block; overflow-x: auto; }
+}

@@ -1,0 +1,139 @@
+from __future__ import annotations
+
+from ..config import settings
+from ..database import connect, write_lock
+from .account_service import get_account
+from .k12_service import request_join_workspace, validate_workspace_id
+from .log_service import write_log
+from .registration_provider import get_provider, random_profile
+
+
+STATUSES = [
+    "pending",
+    "submitting",
+    "waiting_code",
+    "code_received",
+    "submitting_profile",
+    "k12_inviting",
+    "success",
+    "failed",
+    "stopped",
+]
+
+
+def create_tasks(account_ids: list[int], username: str | None = None, age: int | None = None) -> list[int]:
+    task_ids: list[int] = []
+    created_logs: list[tuple[int, int, str]] = []
+    workspace_id = settings["k12"]["workspace_id"]
+    validate_workspace_id(workspace_id)
+    with write_lock():
+        with connect() as conn:
+            for account_id in account_ids:
+                row = conn.execute(
+                    "SELECT id, email FROM ms_accounts WHERE id = ?",
+                    (int(account_id),),
+                ).fetchone()
+                if not row:
+                    continue
+                account = dict(row)
+                item_username, item_age = (username, age) if username and age else random_profile()
+                cur = conn.execute(
+                    """
+                    INSERT INTO reg_tasks(account_id, email, username, age, workspace_id)
+                    VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (account["id"], account["email"], item_username, item_age, workspace_id),
+                )
+                task_id = int(cur.lastrowid)
+                task_ids.append(task_id)
+                created_logs.append((task_id, account["id"], account["email"]))
+    for task_id, account_id, email in created_logs:
+        write_log("INFO", "Registration task created", task_id=task_id, account_id=account_id, email=email)
+    return task_ids
+
+
+def get_task(task_id: int) -> dict | None:
+    with connect() as conn:
+        row = conn.execute("SELECT * FROM reg_tasks WHERE id = ?", (task_id,)).fetchone()
+        return dict(row) if row else None
+
+
+def list_tasks(page: int = 1, page_size: int = 50, status: str | None = None, email: str | None = None) -> dict:
+    page = max(1, int(page))
+    page_size = min(200, max(1, int(page_size)))
+    where = []
+    params: list = []
+    if status:
+        where.append("status = ?")
+        params.append(status)
+    if email:
+        where.append("email LIKE ?")
+        params.append(f"%{email}%")
+    where_sql = "WHERE " + " AND ".join(where) if where else ""
+    with connect() as conn:
+        total = conn.execute(f"SELECT COUNT(*) FROM reg_tasks {where_sql}", params).fetchone()[0]
+        rows = conn.execute(
+            f"SELECT * FROM reg_tasks {where_sql} ORDER BY id DESC LIMIT ? OFFSET ?",
+            [*params, page_size, (page - 1) * page_size],
+        ).fetchall()
+    return {"data": [dict(row) for row in rows], "total": total, "page": page, "page_size": page_size}
+
+
+def update_task_status(task_id: int, status: str, **fields) -> None:
+    if status not in STATUSES:
+        raise ValueError(f"unknown status: {status}")
+    updates = ["status = ?", "updated_at = CURRENT_TIMESTAMP"]
+    params: list = [status]
+    for key, value in fields.items():
+        updates.append(f"{key} = ?")
+        params.append(value)
+    with write_lock():
+        with connect() as conn:
+            conn.execute(f"UPDATE reg_tasks SET {', '.join(updates)} WHERE id = ?", [*params, task_id])
+
+
+async def run_task(task_id: int) -> dict:
+    task = get_task(task_id)
+    if not task:
+        raise ValueError("task not found")
+    account = get_account(task["account_id"], include_secret=True)
+    if not account:
+        raise ValueError("account not found")
+    provider = get_provider(settings["registration"]["provider"])
+
+    def emit(status: str | None, message: str, level: str = "INFO") -> None:
+        if status:
+            update_task_status(task_id, status)
+        write_log(level, message, task_id, account["id"], account["email"])
+
+    try:
+        session = await provider.register(account, task["username"], int(task["age"]), emit)
+        update_task_status(
+            task_id,
+            "code_received",
+            verification_code=session.verification_code,
+            access_token=session.token_payload or session.access_token,
+        )
+
+        if settings["k12"].get("auto_invite", True):
+            update_task_status(task_id, "k12_inviting")
+            if session.provider == "mock":
+                write_log("INFO", "K12 invite skipped in mock registration mode", task_id, account["id"], account["email"])
+            else:
+                invite_result = await request_join_workspace(
+                    session.access_token,
+                    task["workspace_id"],
+                    settings["k12"].get("invite_mode", "request"),
+                )
+                if not invite_result.get("ok"):
+                    status_code = invite_result.get("status_code")
+                    message = invite_result.get("message")
+                    raise RuntimeError(f"K12 invite failed: HTTP {status_code} {message}")
+                write_log("SUCCESS", "K12 workspace invite request submitted", task_id, account["id"], account["email"])
+
+        update_task_status(task_id, "success")
+        write_log("SUCCESS", f"{session.provider} registration flow completed", task_id, account["id"], account["email"])
+    except Exception as exc:
+        update_task_status(task_id, "failed", error_message=str(exc))
+        write_log("ERROR", f"registration flow failed: {exc}", task_id, account["id"], account["email"])
+    return get_task(task_id)

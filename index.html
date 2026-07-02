@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>outlook-k12-imap</title>
+  <script src="/static/js/tailwind.min.js"></script>
+  <script src="/static/js/vue.global.js"></script>
+  <link rel="stylesheet" href="/static/css/style.css?v=20260702-4">
+  <link rel="stylesheet" href="/static/css/index.css?v=20260702-4">
+</head>
+<body>
+  <div id="app" v-cloak>
+    <section v-if="!token" class="login-shell">
+      <form class="login-panel" @submit.prevent="login">
+        <h1>outlook-k12-imap 管理后台</h1>
+        <input v-model="password" type="password" placeholder="管理密码" autocomplete="current-password">
+        <button type="submit" :disabled="loading">{{ loading ? '登录中...' : '登录' }}</button>
+        <p v-if="error" class="error-text">{{ error }}</p>
+        <span class="version">v0.1.0</span>
+      </form>
+    </section>
+
+    <section v-else class="app-shell">
+      <header class="topbar">
+        <button class="icon-btn mobile-only" @click="mobileNavOpen = !mobileNavOpen" title="菜单">☰</button>
+        <strong>outlook-k12-imap</strong>
+        <div class="topbar-actions">
+          <button class="icon-btn" @click="toggleTheme" :title="isDark ? '浅色' : '深色'">{{ isDark ? '☀' : '◐' }}</button>
+          <button class="text-btn" @click="logout">退出</button>
+        </div>
+      </header>
+      <div class="workspace">
+        <aside :class="['sidebar', { open: mobileNavOpen }]">
+          <button type="button" v-for="tab in tabs" :key="tab.id" :class="{ active: currentTab === tab.id }" @click="switchTab(tab.id)">
+            <span>{{ tab.icon }}</span>{{ tab.label }}
+          </button>
+        </aside>
+        <main class="content">
+          <div v-if="notice" class="notice-bar">{{ notice }}</div>
+          <section v-if="currentTab === 'dashboard'" class="view">
+            <div class="view-head">
+              <h2>控制台日志</h2>
+              <button class="primary" @click="loadAll">刷新</button>
+            </div>
+            <div class="filters">
+              <input v-model="logFilters.email" placeholder="账号">
+              <select v-model="logFilters.level"><option value="">全部级别</option><option>INFO</option><option>SUCCESS</option><option>WARN</option><option>ERROR</option></select>
+              <input v-model="logFilters.task_id" placeholder="任务 ID">
+              <button @click="loadLogs">筛选</button>
+            </div>
+            <div class="stats-line">日志 {{ logPage.total || 0 }} 条 · 任务 {{ taskPage.total || 0 }} 个</div>
+            <div class="log-list">
+              <button v-for="log in logs" :key="log.id" class="log-row" @click="selectedLog = log">
+                <span :class="'level level-' + log.level.toLowerCase()">{{ log.level }}</span>
+                <span>{{ log.created_at }}</span>
+                <span>{{ log.email || '-' }}</span>
+                <strong>{{ log.message }}</strong>
+              </button>
+              <p v-if="!logs.length" class="empty">暂无日志</p>
+            </div>
+            <dialog v-if="selectedLog" open class="detail-dialog">
+              <h3>日志详情</h3>
+              <pre>{{ selectedLog }}</pre>
+              <button @click="selectedLog = null">关闭</button>
+            </dialog>
+          </section>
+
+          <section v-if="currentTab === 'accounts'" class="view">
+            <div class="view-head">
+              <h2>微软邮箱批量导入</h2>
+              <div class="button-row">
+                <button class="primary" @click="importAccounts">开始导入</button>
+                <button @click="createAndRunSelected" :disabled="!selectedAccountIds.length">运行选中账号</button>
+              </div>
+            </div>
+            <textarea v-model="importText" class="import-box" placeholder="email----password----client_id----refresh_token"></textarea>
+            <div v-if="importResult" class="result-bar">
+              成功 {{ importResult.count }} 条，重复 {{ importResult.duplicated }} 条，失败 {{ importResult.failed }} 条
+            </div>
+            <div class="view-head compact">
+              <h2>已导入账号</h2>
+              <input v-model="accountSearch" placeholder="搜索账号" @keyup.enter="loadAccounts">
+            </div>
+            <table>
+              <thead><tr><th><input type="checkbox" :checked="allAccountsSelected" @change="toggleAllAccounts"></th><th>ID</th><th>邮箱</th><th>状态</th><th>创建时间</th><th>操作</th></tr></thead>
+              <tbody>
+                <tr v-for="account in accounts" :key="account.id">
+                  <td><input type="checkbox" :value="account.id" v-model="selectedAccountIds"></td>
+                  <td>{{ account.id }}</td>
+                  <td>{{ account.email }}</td>
+                  <td>{{ account.status }}</td>
+                  <td>{{ account.created_at }}</td>
+                  <td>
+                    <button @click="createAndRun(account.id)">创建并启动任务</button>
+                    <button @click="deleteAccount(account.id)">删除</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+
+          <section v-if="currentTab === 'tasks'" class="view">
+            <div class="view-head">
+              <h2>注册任务</h2>
+              <div class="button-row">
+                <button class="primary" @click="runRunnableTasks" :disabled="!runnableTasks.length">运行待处理任务</button>
+                <button @click="loadTasks">刷新</button>
+              </div>
+            </div>
+            <p v-if="!tasks.length" class="empty">暂无注册任务。到“微软邮箱”页导入账号后，可直接点击“运行选中账号”。</p>
+            <table>
+              <thead><tr><th>ID</th><th>邮箱</th><th>状态</th><th>用户名</th><th>年龄</th><th>操作</th></tr></thead>
+              <tbody>
+                <tr v-for="task in tasks" :key="task.id">
+                  <td>{{ task.id }}</td>
+                  <td>{{ task.email }}</td>
+                  <td><span :class="'status status-' + task.status">{{ task.status }}</span></td>
+                  <td>{{ task.username }}</td>
+                  <td>{{ task.age }}</td>
+                  <td><button @click="startTask(task.id)">启动/重试</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </section>
+
+          <section v-if="currentTab === 'codex'" class="view settings-grid">
+            <h2>Codex</h2>
+            <div class="result-bar">
+              Codex 菜单已预留。当前第一阶段不会自动获取或展示 chatgpt.com 的 session；请在合法、手动授权的后续接入中配置自己的会话来源。
+            </div>
+            <div class="result-bar">
+              注册任务页当前显示的是 Mock 适配器的模拟流程结果，不代表真实 OpenAI / ChatGPT 账号注册成功。
+            </div>
+          </section>
+
+          <section v-if="currentTab === 'settings'" class="view settings-grid">
+            <h2>设置</h2>
+            <label>Workspace ID<input v-model="settings.k12.workspace_id"></label>
+            <label>邀请方式<select v-model="settings.k12.invite_mode"><option>request</option><option>accept</option></select></label>
+            <label class="inline"><input type="checkbox" v-model="settings.k12.auto_invite"> 注册成功后自动邀请</label>
+            <label>注册适配器<select v-model="settings.registration.provider"><option>mock</option><option>openai</option></select></label>
+            <label>并发数<input type="number" min="1" max="10" v-model.number="settings.registration.concurrency"></label>
+            <label>代理地址<input v-model="settings.registration.proxy" placeholder="http://127.0.0.1:7897"></label>
+            <label>auth_core 路径<input v-model="settings.registration.auth_core_path"></label>
+            <label>验证码轮询次数<input type="number" min="1" max="100" v-model.number="settings.registration.otp_poll_attempts"></label>
+            <label>验证码轮询间隔秒<input type="number" min="1" max="30" v-model.number="settings.registration.otp_poll_interval_seconds"></label>
+            <label>HTTP 重试次数<input type="number" min="0" max="10" v-model.number="settings.registration.http_retries"></label>
+            <button class="primary" @click="saveSettings">保存配置</button>
+          </section>
+        </main>
+      </div>
+    </section>
+  </div>
+  <script src="/static/js/app.js?v=20260702-4"></script>
+</body>
+</html>
