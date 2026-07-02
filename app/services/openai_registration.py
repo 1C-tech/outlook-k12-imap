@@ -273,6 +273,21 @@ def _post_with_retry(session, url: str, *, headers: dict[str, Any], json_body: A
     raise OpenAIRegistrationError(f"请求失败: {last_exc}") from last_exc
 
 
+def _response_error_summary(response) -> str:
+    try:
+        data = response.json()
+    except Exception:
+        text = str(getattr(response, "text", "") or "").strip()
+        return text[:300]
+    error = data.get("error") if isinstance(data, dict) else None
+    if isinstance(error, dict):
+        code = str(error.get("code") or "").strip()
+        message = str(error.get("message") or "").strip()
+        if code or message:
+            return " / ".join(item for item in [code, message] if item)
+    return json.dumps(data, ensure_ascii=False)[:300]
+
+
 def _follow_redirect_chain(session, start_url: str, proxies: Any = None, max_redirects: int = 12) -> tuple[Any, str]:
     current_url = start_url
     response = None
@@ -330,6 +345,25 @@ def _generate_user_info(username: str | None, age: int | None) -> dict[str, str]
     return {"name": name, "birthdate": f"{year}-{random.randint(1, 12):02d}-{random.randint(1, 28):02d}"}
 
 
+def _mask_email(email: str) -> str:
+    local, sep, domain = (email or "").partition("@")
+    if not sep:
+        return email
+    if len(local) <= 2:
+        masked = local[:1] + "*"
+    else:
+        masked = local[:1] + "*" * max(1, len(local) - 2) + local[-1:]
+    return f"{masked}@{domain}"
+
+
+def _new_auth_context() -> dict[str, Any]:
+    now_ms = int(time.time() * 1000)
+    return {
+        "session_id": str(uuid.uuid4()),
+        "time_origin": float(now_ms - random.randint(20_000, 300_000)),
+    }
+
+
 def _proxies() -> dict[str, str] | None:
     proxy = str(settings.get("registration", {}).get("proxy") or "").strip()
     if not proxy:
@@ -369,45 +403,94 @@ class OpenAIRegistrationProvider:
         email = account["email"]
         password = account["password"]
         oauth = generate_oauth_url()
-        session = requests.Session(proxies=proxies, impersonate="chrome")
-        session.headers.update({"Connection": "close"})
+        session = None
         ctx: dict[str, Any] = {}
         try:
-            emit("submitting", "正在初始化 OpenAI 认证会话", "INFO")
-            did, user_agent = auth_core.init_auth(
-                session=session,
-                email=email,
-                masked_email=email,
-                proxies=proxies,
-                verify=_ssl_verify(),
-            )
-            did = did or str(uuid.uuid4())
+            signup_resp = None
+            did = ""
+            user_agent = ""
+            for auth_attempt in range(2):
+                if session is not None:
+                    try:
+                        session.close()
+                    except Exception:
+                        pass
+                oauth = generate_oauth_url()
+                session = requests.Session(proxies=proxies, impersonate="chrome")
+                session.headers.update({"Connection": "close"})
+                ctx = _new_auth_context()
+                emit(
+                    "submitting",
+                    "正在初始化 OpenAI 认证会话" if auth_attempt == 0 else "正在重建 OpenAI 认证会话",
+                    "INFO",
+                )
+                did, user_agent = auth_core.init_auth(
+                    session=session,
+                    email=email,
+                    masked_email=_mask_email(email),
+                    proxies=proxies,
+                    verify=_ssl_verify(),
+                )
+                did = did or str(uuid.uuid4())
+                start_url = "https://auth.openai.com/create-account"
+                try:
+                    _, current_url = _follow_redirect_chain(session, oauth.auth_url, proxies)
+                    if current_url:
+                        start_url = current_url
+                    cookie_did = str(session.cookies.get("oai-did") or "").strip()
+                    if cookie_did:
+                        did = cookie_did
+                    if "code=" in start_url and "state=" in start_url:
+                        token_payload = submit_callback_url(
+                            start_url,
+                            oauth.state,
+                            oauth.code_verifier,
+                            oauth.redirect_uri,
+                            proxies,
+                        )
+                        access_token = _extract_access_token(token_payload)
+                        if not access_token:
+                            raise OpenAIRegistrationError("OAuth token 响应缺少 access_token")
+                        emit("success", "当前账号已可完成 OAuth 授权", "SUCCESS")
+                        return OpenAIRegistrationResult("", token_payload, access_token)
+                except OpenAIRegistrationError:
+                    raise
+                except Exception as exc:
+                    emit(None, f"OpenAI 授权页初始化异常，继续尝试接口流程：{exc}", "WARN")
+                sentinel = auth_core.generate_payload(
+                    did=did,
+                    flow="authorize_continue",
+                    proxy=str(settings.get("registration", {}).get("proxy") or ""),
+                    user_agent=user_agent,
+                    impersonate="chrome",
+                    ctx=ctx,
+                )
+                signup_headers = _oai_headers(
+                    did,
+                    {"Referer": start_url, "content-type": "application/json"},
+                )
+                if sentinel:
+                    signup_headers["openai-sentinel-token"] = sentinel
+                signup_resp = _post_with_retry(
+                    session,
+                    "https://auth.openai.com/api/accounts/authorize/continue",
+                    headers=signup_headers,
+                    json_body={"username": {"value": email, "kind": "email"}, "screen_hint": "login_or_signup"},
+                    proxies=proxies,
+                )
+                if signup_resp.status_code == 409:
+                    detail = _response_error_summary(signup_resp)
+                    if auth_attempt == 0 and "invalid_state" in detail:
+                        emit(None, f"OpenAI 会话状态失效，准备重建会话重试：{detail}", "WARN")
+                        continue
+                break
 
-            sentinel = auth_core.generate_payload(
-                did=did,
-                flow="authorize_continue",
-                proxy=str(settings.get("registration", {}).get("proxy") or ""),
-                user_agent=user_agent,
-                impersonate="chrome",
-                ctx=ctx,
-            )
-            signup_headers = _oai_headers(
-                did,
-                {"Referer": "https://auth.openai.com/create-account", "content-type": "application/json"},
-            )
-            if sentinel:
-                signup_headers["openai-sentinel-token"] = sentinel
-            signup_resp = _post_with_retry(
-                session,
-                "https://auth.openai.com/api/accounts/authorize/continue",
-                headers=signup_headers,
-                json_body={"username": {"value": email, "kind": "email"}, "screen_hint": "login_or_signup"},
-                proxies=proxies,
-            )
             if signup_resp.status_code == 403:
-                raise OpenAIRegistrationError("OpenAI 拒绝 authorize/continue 请求: HTTP 403")
+                detail = _response_error_summary(signup_resp)
+                raise OpenAIRegistrationError(f"OpenAI 拒绝 authorize/continue 请求: HTTP 403 {detail}")
             if signup_resp.status_code != 200:
-                raise OpenAIRegistrationError(f"OpenAI authorize/continue 失败: HTTP {signup_resp.status_code}")
+                detail = _response_error_summary(signup_resp)
+                raise OpenAIRegistrationError(f"OpenAI authorize/continue 失败: HTTP {signup_resp.status_code} {detail}")
 
             emit("submitting", "正在提交账号密码", "INFO")
             pwd_sentinel = auth_core.generate_payload(
@@ -432,7 +515,14 @@ class OpenAIRegistrationProvider:
                 proxies=proxies,
             )
             if pwd_resp.status_code != 200:
-                raise OpenAIRegistrationError(f"OpenAI 密码注册失败: HTTP {pwd_resp.status_code}")
+                detail = _response_error_summary(pwd_resp)
+                if "account_creation_failed" in detail or "Failed to create account" in detail:
+                    raise OpenAIRegistrationError(
+                        "OpenAI 拒绝创建账号：account_creation_failed。"
+                        "通常表示当前 IP、邮箱或注册环境触发风控，请更换代理/IP或邮箱后重试。"
+                        f"原始返回: HTTP {pwd_resp.status_code} {detail}"
+                    )
+                raise OpenAIRegistrationError(f"OpenAI 密码注册失败: HTTP {pwd_resp.status_code} {detail}")
 
             send_headers = _oai_headers(
                 did,
@@ -480,7 +570,8 @@ class OpenAIRegistrationProvider:
                 proxies=proxies,
             )
             if val_resp.status_code != 200:
-                raise OpenAIRegistrationError(f"OpenAI 邮箱验证码校验失败: HTTP {val_resp.status_code}")
+                detail = _response_error_summary(val_resp)
+                raise OpenAIRegistrationError(f"OpenAI 邮箱验证码校验失败: HTTP {val_resp.status_code} {detail}")
 
             next_url = _extract_next_url(val_resp.json())
             if "/add-phone" in next_url or "/select-channel" in next_url:
@@ -509,7 +600,8 @@ class OpenAIRegistrationProvider:
                 proxies=proxies,
             )
             if profile_resp.status_code != 200:
-                raise OpenAIRegistrationError(f"OpenAI 用户资料提交失败: HTTP {profile_resp.status_code}")
+                detail = _response_error_summary(profile_resp)
+                raise OpenAIRegistrationError(f"OpenAI 用户资料提交失败: HTTP {profile_resp.status_code} {detail}")
             next_url = _extract_next_url(profile_resp.json()) or next_url
             if "/add-phone" in next_url or "/select-channel" in next_url:
                 raise PhoneVerificationRequired("需要手机号验证")
