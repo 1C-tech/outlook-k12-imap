@@ -241,6 +241,10 @@ body.theme-dark .sidebar button {
 .log-list {
   display: grid;
   gap: 8px;
+  max-height: min(620px, 62vh);
+  overflow-y: auto;
+  padding-right: 4px;
+  scroll-behavior: smooth;
 }
 
 .log-row {

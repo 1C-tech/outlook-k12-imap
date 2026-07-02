@@ -6,8 +6,8 @@
   <title>outlook-k12-imap</title>
   <script src="/static/js/tailwind.min.js"></script>
   <script src="/static/js/vue.global.js"></script>
-  <link rel="stylesheet" href="/static/css/style.css?v=20260703-2">
-  <link rel="stylesheet" href="/static/css/index.css?v=20260703-2">
+  <link rel="stylesheet" href="/static/css/style.css?v=20260703-3">
+  <link rel="stylesheet" href="/static/css/index.css?v=20260703-3">
 </head>
 <body>
   <div id="app" v-cloak>
@@ -65,8 +65,8 @@
               <input v-model="logFilters.task_id" placeholder="任务 ID">
               <button @click="loadLogs">筛选</button>
             </div>
-            <div class="stats-line">日志 {{ logPage.total || 0 }} 条 · 任务 {{ taskPage.total || 0 }} 个</div>
-            <div class="log-list">
+            <div class="stats-line">日志 {{ logPage.total || logs.length || 0 }} 条 · {{ logStreamConnected ? '实时连接' : '实时断开' }}</div>
+            <div class="log-list" ref="logList">
               <button v-for="log in logs" :key="log.id" class="log-row" @click="selectedLog = log">
                 <span :class="'level level-' + log.level.toLowerCase()">{{ log.level }}</span>
                 <span>{{ log.created_at }}</span>
@@ -144,6 +144,6 @@
       </div>
     </section>
   </div>
-  <script src="/static/js/app.js?v=20260703-2"></script>
+  <script src="/static/js/app.js?v=20260703-3"></script>
 </body>
 </html>

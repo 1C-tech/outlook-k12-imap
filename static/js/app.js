@@ -30,16 +30,20 @@ createApp({
       logFilters: { email: "", level: "", task_id: "" },
       settings: { k12: {}, registration: {} },
       notice: "",
-      runLogPollTimer: null,
-      runLogPollCount: 0,
+      logStream: null,
+      logStreamConnected: false,
     };
   },
   mounted() {
     this.applyTheme();
-    if (this.token) this.loadAll().catch((err) => { this.notice = err.message; });
+    if (this.token) {
+      this.loadAll()
+        .then(() => this.startLogStream())
+        .catch((err) => { this.notice = err.message; });
+    }
   },
   beforeUnmount() {
-    this.stopRunLogPolling();
+    this.stopLogStream();
   },
   computed: {
     allAccountsSelected() {
@@ -87,6 +91,7 @@ createApp({
         this.token = data.token;
         localStorage.setItem("k12_token", this.token);
         await this.loadAll();
+        this.startLogStream();
       } catch (err) {
         this.error = err.message;
       } finally {
@@ -95,6 +100,7 @@ createApp({
     },
     async logout() {
       try { await this.api("/api/auth/logout", { method: "POST" }); } catch (_) {}
+      this.stopLogStream();
       this.token = "";
       localStorage.removeItem("k12_token");
     },
@@ -177,27 +183,51 @@ createApp({
       const result = await this.api("/api/tasks/run_unfinished", { method: "POST" });
       this.notice = `${result.message || "已启动"}：未注册 ${result.registration_count || 0} 个，待邀请 ${result.invite_count || 0} 个，并发 ${result.concurrency || 1}`;
       await this.loadLogs();
-      this.startRunLogPolling();
+      this.startLogStream();
     },
-    startRunLogPolling() {
-      this.stopRunLogPolling();
-      this.runLogPollCount = 0;
-      this.runLogPollTimer = setInterval(async () => {
+    startLogStream() {
+      if (!this.token || this.logStream) return;
+      const url = `/api/logs/stream?token=${encodeURIComponent(this.token)}&_t=${Date.now()}`;
+      this.logStream = new EventSource(url);
+      this.logStreamConnected = true;
+      this.logStream.onmessage = (event) => {
         try {
-          this.runLogPollCount += 1;
-          await this.loadAll();
-          if (this.runLogPollCount >= 60) this.stopRunLogPolling();
-        } catch (err) {
-          this.notice = err.message;
-          this.stopRunLogPolling();
-        }
-      }, 2000);
+          const log = JSON.parse(event.data);
+          this.appendLog(log);
+        } catch (_) {}
+      };
+      this.logStream.onerror = () => {
+        this.stopLogStream();
+        if (this.token) setTimeout(() => this.startLogStream(), 3000);
+      };
     },
-    stopRunLogPolling() {
-      if (this.runLogPollTimer) {
-        clearInterval(this.runLogPollTimer);
-        this.runLogPollTimer = null;
+    stopLogStream() {
+      if (this.logStream) {
+        this.logStream.close();
+        this.logStream = null;
       }
+      this.logStreamConnected = false;
+    },
+    logMatchesFilters(log) {
+      if (this.logFilters.level && String(log.level || "").toUpperCase() !== this.logFilters.level) return false;
+      if (this.logFilters.task_id && String(log.task_id || "") !== String(this.logFilters.task_id)) return false;
+      if (this.logFilters.email && !String(log.email || "").includes(this.logFilters.email)) return false;
+      return true;
+    },
+    appendLog(log) {
+      if (!log || !log.id || this.logs.some((item) => item.id === log.id) || !this.logMatchesFilters(log)) return;
+      const list = this.$refs.logList;
+      const shouldStickToBottom = !list || (list.scrollHeight - list.clientHeight - list.scrollTop < 80);
+      this.logs.push(log);
+      if (this.logs.length > 200) this.logs.splice(0, this.logs.length - 200);
+      this.logPage.total = (this.logPage.total || 0) + 1;
+      this.$nextTick(() => {
+        if (shouldStickToBottom) this.scrollLogsToBottom();
+      });
+    },
+    scrollLogsToBottom() {
+      const list = this.$refs.logList;
+      if (list) list.scrollTop = list.scrollHeight;
     },
     async loadTasks() {
       const data = await this.api("/api/tasks?page=1&page_size=50");
@@ -212,12 +242,16 @@ createApp({
     async clearLogs() {
       const data = await this.api("/api/logs/clear", { method: "POST" });
       this.selectedLog = null;
+      this.logs = [];
+      this.logPage = { total: 0 };
+      this.stopLogStream();
       await this.loadLogs();
       if ((this.logPage.total || 0) > 0) {
         this.notice = `已请求清空 ${data.deleted} 条日志，但仍检测到 ${this.logPage.total} 条，请重启后端服务后再试`;
         return;
       }
       this.notice = `已清空 ${data.deleted} 条日志`;
+      this.startLogStream();
     },
     async loadLogs() {
       const q = new URLSearchParams({ page: 1, page_size: 80 });
@@ -225,8 +259,9 @@ createApp({
         if (value) q.set(key, value);
       });
       const data = await this.api(`/api/logs?${q}`);
-      this.logs = data.data;
+      this.logs = (data.data || []).slice().reverse();
       this.logPage = data;
+      this.$nextTick(() => this.scrollLogsToBottom());
     },
     async loadSettings() {
       this.settings = await this.api("/api/settings");
