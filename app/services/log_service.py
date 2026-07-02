@@ -81,6 +81,7 @@ def clear_logs() -> int:
         with connect() as conn:
             total = conn.execute("SELECT COUNT(*) FROM reg_logs").fetchone()[0]
             conn.execute("DELETE FROM reg_logs")
+            conn.execute("DELETE FROM sqlite_sequence WHERE name = 'reg_logs'")
             return int(total)
 
 

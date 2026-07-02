@@ -203,9 +203,13 @@ createApp({
       setTimeout(() => this.loadAll().catch((err) => { this.notice = err.message; }), 1000);
     },
     async clearLogs() {
-      const data = await this.api("/api/logs", { method: "DELETE" });
-      this.logs = [];
-      this.logPage = { total: 0 };
+      const data = await this.api("/api/logs/clear", { method: "POST" });
+      this.selectedLog = null;
+      await this.loadLogs();
+      if ((this.logPage.total || 0) > 0) {
+        this.notice = `已请求清空 ${data.deleted} 条日志，但仍检测到 ${this.logPage.total} 条，请重启后端服务后再试`;
+        return;
+      }
       this.notice = `已清空 ${data.deleted} 条日志`;
     },
     async loadLogs() {

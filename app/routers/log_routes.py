@@ -36,6 +36,11 @@ def clear():
     return {"status": "success", "deleted": clear_logs()}
 
 
+@router.post("/api/logs/clear")
+def clear_post():
+    return {"status": "success", "deleted": clear_logs()}
+
+
 @router.get("/api/logs/stream")
 async def stream(task_id: int | None = None):
     async def generator():
