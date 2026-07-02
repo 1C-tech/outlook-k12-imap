@@ -31,11 +31,11 @@ async def test_openai_registration_fails_clearly_without_auth_core(tmp_path, mon
     task_ids = create_tasks([1])
     final = await run_task(task_ids[0])
     assert final["status"] == "failed"
-    assert "auth_core could not be loaded" in final["error_message"]
+    assert "无法加载 OpenAI auth_core" in final["error_message"]
 
 
 def test_submit_callback_url_rejects_state_mismatch():
-    with pytest.raises(OpenAIRegistrationError, match="state mismatch"):
+    with pytest.raises(OpenAIRegistrationError, match="state 不匹配"):
         submit_callback_url(
             "http://localhost:1455/auth/callback?code=abc&state=actual",
             expected_state="expected",

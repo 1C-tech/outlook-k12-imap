@@ -30,11 +30,16 @@ createApp({
       logFilters: { email: "", level: "", task_id: "" },
       settings: { k12: {}, registration: {} },
       notice: "",
+      runLogPollTimer: null,
+      runLogPollCount: 0,
     };
   },
   mounted() {
     this.applyTheme();
     if (this.token) this.loadAll().catch((err) => { this.notice = err.message; });
+  },
+  beforeUnmount() {
+    this.stopRunLogPolling();
   },
   computed: {
     allAccountsSelected() {
@@ -172,7 +177,27 @@ createApp({
       const result = await this.api("/api/tasks/run_unfinished", { method: "POST" });
       this.notice = `${result.message || "已启动"}：未注册 ${result.registration_count || 0} 个，待邀请 ${result.invite_count || 0} 个，并发 ${result.concurrency || 1}`;
       await this.loadLogs();
-      setTimeout(() => this.loadAll().catch((err) => { this.notice = err.message; }), 1000);
+      this.startRunLogPolling();
+    },
+    startRunLogPolling() {
+      this.stopRunLogPolling();
+      this.runLogPollCount = 0;
+      this.runLogPollTimer = setInterval(async () => {
+        try {
+          this.runLogPollCount += 1;
+          await this.loadAll();
+          if (this.runLogPollCount >= 60) this.stopRunLogPolling();
+        } catch (err) {
+          this.notice = err.message;
+          this.stopRunLogPolling();
+        }
+      }, 2000);
+    },
+    stopRunLogPolling() {
+      if (this.runLogPollTimer) {
+        clearInterval(this.runLogPollTimer);
+        this.runLogPollTimer = null;
+      }
     },
     async loadTasks() {
       const data = await this.api("/api/tasks?page=1&page_size=50");

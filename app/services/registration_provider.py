@@ -32,15 +32,15 @@ class MockRegistrationProvider:
         age: int | None,
         emit: Callable[[str | None, str, str], None],
     ) -> RegistrationSession:
-        emit("submitting", "Submitting mock registration request", "INFO")
+        emit("submitting", "正在提交 Mock 注册请求", "INFO")
         session = await self.submit_registration(account["email"], account["password"])
-        emit("waiting_code", "Waiting for mock verification code", "INFO")
-        emit("code_received", f"Received mock verification code: {session.verification_code}", "SUCCESS")
+        emit("waiting_code", "正在等待 Mock 验证码", "INFO")
+        emit("code_received", f"已收到 Mock 验证码：{session.verification_code}", "SUCCESS")
         if not await self.verify_code(session, session.verification_code):
-            raise RuntimeError("mock verification code validation failed")
-        emit("submitting_profile", f"Submitting mock profile: {username} / {age}", "INFO")
+            raise RuntimeError("Mock 验证码校验失败")
+        emit("submitting_profile", f"正在提交 Mock 用户资料：{username} / {age}", "INFO")
         if not await self.submit_profile(session, username or "", int(age or 0)):
-            raise RuntimeError("mock profile submission failed")
+            raise RuntimeError("Mock 用户资料提交失败")
         return session
 
     async def submit_registration(self, email: str, password: str) -> RegistrationSession:

@@ -174,11 +174,11 @@ def submit_callback_url(
 ) -> str:
     parsed = _parse_callback_url(callback_url)
     if parsed["error"]:
-        raise OpenAIRegistrationError(f"oauth error: {parsed['error']}: {parsed['error_description']}".strip())
+        raise OpenAIRegistrationError(f"OAuth 回调错误: {parsed['error']}: {parsed['error_description']}".strip())
     if not parsed["code"]:
-        raise OpenAIRegistrationError("callback url missing code")
+        raise OpenAIRegistrationError("OAuth 回调地址缺少 code")
     if parsed["state"] != expected_state:
-        raise OpenAIRegistrationError("oauth state mismatch")
+        raise OpenAIRegistrationError("OAuth state 不匹配")
 
     requests = _load_curl_requests()
     response = requests.post(
@@ -197,7 +197,7 @@ def submit_callback_url(
         impersonate="chrome110",
     )
     if response.status_code != 200:
-        raise OpenAIRegistrationError(f"token exchange failed: HTTP {response.status_code}: {response.text[:300]}")
+        raise OpenAIRegistrationError(f"OAuth token 交换失败: HTTP {response.status_code}: {response.text[:300]}")
 
     body = response.json()
     access_token = str(body.get("access_token") or "").strip()
@@ -230,7 +230,7 @@ def _load_curl_requests():
     try:
         from curl_cffi import requests
     except Exception as exc:
-        raise OpenAIRegistrationError("curl_cffi is required for real OpenAI registration") from exc
+        raise OpenAIRegistrationError("真实 OpenAI 注册需要安装 curl_cffi") from exc
     return requests
 
 
@@ -244,12 +244,12 @@ def _load_auth_core():
         module = importlib.import_module("utils.auth_core")
     except Exception as exc:
         raise OpenAIRegistrationError(
-            "OpenAI auth_core could not be loaded. Configure registration.auth_core_path "
-            "to a compatible openai-cpa checkout and run with a Python version supported by its auth_core binary."
+            "无法加载 OpenAI auth_core。请将 registration.auth_core_path 配置为兼容的 openai-cpa 目录，"
+            "并使用 auth_core 二进制支持的 Python 版本运行。"
         ) from exc
     missing = [name for name in ("generate_payload", "init_auth") if not hasattr(module, name)]
     if missing:
-        raise OpenAIRegistrationError(f"OpenAI auth_core missing required functions: {', '.join(missing)}")
+        raise OpenAIRegistrationError(f"OpenAI auth_core 缺少必要函数: {', '.join(missing)}")
     return module
 
 
@@ -270,7 +270,7 @@ def _post_with_retry(session, url: str, *, headers: dict[str, Any], json_body: A
             last_exc = exc
             if attempt < retries:
                 time.sleep(2 * (attempt + 1))
-    raise OpenAIRegistrationError(f"request failed: {last_exc}") from last_exc
+    raise OpenAIRegistrationError(f"请求失败: {last_exc}") from last_exc
 
 
 def _follow_redirect_chain(session, start_url: str, proxies: Any = None, max_redirects: int = 12) -> tuple[Any, str]:
@@ -342,15 +342,15 @@ def _proxies() -> dict[str, str] | None:
 async def _poll_outlook_code(account: dict[str, Any], emit: EventCallback) -> str:
     attempts = int(settings.get("registration", {}).get("otp_poll_attempts", 20))
     interval = float(settings.get("registration", {}).get("otp_poll_interval_seconds", 3))
-    emit("waiting_code", "Waiting for OpenAI email verification code", "INFO")
+    emit("waiting_code", "正在等待 OpenAI 邮箱验证码", "INFO")
     access_token = await exchange_refresh_token(account["client_id"], account["refresh_token"])
     for attempt in range(1, attempts + 1):
         code = await asyncio.to_thread(fetch_latest_code, account["email"], access_token)
         if code:
             return code
-        emit(None, f"No verification code yet ({attempt}/{attempts})", "INFO")
+        emit(None, f"暂未收到验证码（{attempt}/{attempts}）", "INFO")
         await asyncio.sleep(interval)
-    raise OpenAIRegistrationError("email verification code timed out")
+    raise OpenAIRegistrationError("邮箱验证码等待超时")
 
 
 class OpenAIRegistrationProvider:
@@ -373,7 +373,7 @@ class OpenAIRegistrationProvider:
         session.headers.update({"Connection": "close"})
         ctx: dict[str, Any] = {}
         try:
-            emit("submitting", "Initializing OpenAI auth session", "INFO")
+            emit("submitting", "正在初始化 OpenAI 认证会话", "INFO")
             did, user_agent = auth_core.init_auth(
                 session=session,
                 email=email,
@@ -405,11 +405,11 @@ class OpenAIRegistrationProvider:
                 proxies=proxies,
             )
             if signup_resp.status_code == 403:
-                raise OpenAIRegistrationError("OpenAI rejected authorize/continue with HTTP 403")
+                raise OpenAIRegistrationError("OpenAI 拒绝 authorize/continue 请求: HTTP 403")
             if signup_resp.status_code != 200:
-                raise OpenAIRegistrationError(f"OpenAI authorize/continue failed: HTTP {signup_resp.status_code}")
+                raise OpenAIRegistrationError(f"OpenAI authorize/continue 失败: HTTP {signup_resp.status_code}")
 
-            emit("submitting", "Submitting account password", "INFO")
+            emit("submitting", "正在提交账号密码", "INFO")
             pwd_sentinel = auth_core.generate_payload(
                 did=did,
                 flow="username_password_create",
@@ -432,7 +432,7 @@ class OpenAIRegistrationProvider:
                 proxies=proxies,
             )
             if pwd_resp.status_code != 200:
-                raise OpenAIRegistrationError(f"OpenAI password registration failed: HTTP {pwd_resp.status_code}")
+                raise OpenAIRegistrationError(f"OpenAI 密码注册失败: HTTP {pwd_resp.status_code}")
 
             send_headers = _oai_headers(
                 did,
@@ -457,7 +457,7 @@ class OpenAIRegistrationProvider:
             )
 
             code = await _poll_outlook_code(account, emit)
-            emit("code_received", f"Received OpenAI verification code: {code}", "SUCCESS")
+            emit("code_received", f"已收到 OpenAI 验证码：{code}", "SUCCESS")
             val_headers = _oai_headers(
                 did,
                 {"Referer": "https://auth.openai.com/email-verification", "content-type": "application/json"},
@@ -480,13 +480,13 @@ class OpenAIRegistrationProvider:
                 proxies=proxies,
             )
             if val_resp.status_code != 200:
-                raise OpenAIRegistrationError(f"OpenAI email OTP validation failed: HTTP {val_resp.status_code}")
+                raise OpenAIRegistrationError(f"OpenAI 邮箱验证码校验失败: HTTP {val_resp.status_code}")
 
             next_url = _extract_next_url(val_resp.json())
             if "/add-phone" in next_url or "/select-channel" in next_url:
-                raise PhoneVerificationRequired("phone_verification_required")
+                raise PhoneVerificationRequired("需要手机号验证")
 
-            emit("submitting_profile", "Submitting OpenAI profile", "INFO")
+            emit("submitting_profile", "正在提交 OpenAI 用户资料", "INFO")
             profile_sentinel = auth_core.generate_payload(
                 did=did,
                 flow="create_account",
@@ -509,15 +509,15 @@ class OpenAIRegistrationProvider:
                 proxies=proxies,
             )
             if profile_resp.status_code != 200:
-                raise OpenAIRegistrationError(f"OpenAI profile submission failed: HTTP {profile_resp.status_code}")
+                raise OpenAIRegistrationError(f"OpenAI 用户资料提交失败: HTTP {profile_resp.status_code}")
             next_url = _extract_next_url(profile_resp.json()) or next_url
             if "/add-phone" in next_url or "/select-channel" in next_url:
-                raise PhoneVerificationRequired("phone_verification_required")
+                raise PhoneVerificationRequired("需要手机号验证")
 
             token_payload = self._finish_oauth(session, oauth, next_url, did, proxies)
             access_token = _extract_access_token(token_payload)
             if not access_token:
-                raise OpenAIRegistrationError("OAuth token payload did not include access_token")
+                raise OpenAIRegistrationError("OAuth token 响应缺少 access_token")
             return OpenAIRegistrationResult(code, token_payload, access_token)
         finally:
             try:
@@ -552,4 +552,4 @@ class OpenAIRegistrationProvider:
         _, current_url = _follow_redirect_chain(session, oauth.auth_url, proxies)
         if "code=" in current_url and "state=" in current_url:
             return submit_callback_url(current_url, oauth.state, oauth.code_verifier, oauth.redirect_uri, proxies)
-        raise OpenAIRegistrationError(f"OAuth callback code was not reached; stopped at {current_url}")
+        raise OpenAIRegistrationError(f"未到达 OAuth 回调 code，停止位置: {current_url}")

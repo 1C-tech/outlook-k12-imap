@@ -56,7 +56,7 @@ def create_tasks(account_ids: list[int], username: str | None = None, age: int |
                 task_ids.append(task_id)
                 created_logs.append((task_id, account["id"], account["email"]))
     for task_id, account_id, email in created_logs:
-        write_log("INFO", "Registration task created", task_id=task_id, account_id=account_id, email=email)
+        write_log("INFO", "已创建注册任务", task_id=task_id, account_id=account_id, email=email)
     return task_ids
 
 
@@ -271,7 +271,7 @@ async def run_task(task_id: int) -> dict:
         if settings["k12"].get("auto_invite", True):
             update_task_status(task_id, "k12_inviting")
             if session.provider == "mock":
-                write_log("INFO", "K12 invite skipped in mock registration mode", task_id, account["id"], account["email"])
+                write_log("INFO", "Mock 注册模式下跳过真实 K12 邀请", task_id, account["id"], account["email"])
             else:
                 invite_result = await request_join_workspace(
                     session.access_token,
@@ -281,13 +281,13 @@ async def run_task(task_id: int) -> dict:
                 if not invite_result.get("ok"):
                     status_code = invite_result.get("status_code")
                     message = invite_result.get("message")
-                    raise RuntimeError(f"K12 invite failed: HTTP {status_code} {message}")
+                    raise RuntimeError(f"K12 邀请失败: HTTP {status_code} {message}")
                 update_account(account["id"], status=ACCOUNT_STATUS_INVITED)
-                write_log("SUCCESS", "K12 workspace invite request submitted", task_id, account["id"], account["email"])
+                write_log("SUCCESS", "K12 工作区邀请请求已提交", task_id, account["id"], account["email"])
 
         update_task_status(task_id, "success")
-        write_log("SUCCESS", f"{session.provider} registration flow completed", task_id, account["id"], account["email"])
+        write_log("SUCCESS", f"{session.provider} 注册流程完成", task_id, account["id"], account["email"])
     except Exception as exc:
         update_task_status(task_id, "failed", error_message=str(exc))
-        write_log("ERROR", f"registration flow failed: {exc}", task_id, account["id"], account["email"])
+        write_log("ERROR", f"注册流程失败: {exc}", task_id, account["id"], account["email"])
     return get_task(task_id)

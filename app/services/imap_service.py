@@ -31,11 +31,11 @@ async def exchange_refresh_token(client_id: str, refresh_token: str) -> str:
     async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.post(settings["imap"]["token_url"], data=payload)
     if resp.status_code != 200:
-        raise ImapServiceError(f"token exchange failed: HTTP {resp.status_code}")
+        raise ImapServiceError(f"Outlook token 交换失败: HTTP {resp.status_code}")
     data = resp.json()
     token = data.get("access_token")
     if not token:
-        raise ImapServiceError("token exchange response did not include access_token")
+        raise ImapServiceError("Outlook token 响应缺少 access_token")
     return token
 
 
