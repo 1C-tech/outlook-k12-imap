@@ -38,6 +38,9 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "timeout_seconds": 20,
         "folders": ["INBOX", "Junk"],
         "token_url": "https://login.microsoftonline.com/common/oauth2/v2.0/token",
+        "chatai_base_url": "https://mail.chatai.codes",
+        "use_chatai_fetcher": True,
+        "local_fallback": False,
     },
 }
 

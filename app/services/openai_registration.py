@@ -17,7 +17,14 @@ from pathlib import Path
 from typing import Any, Callable
 
 from ..config import settings
-from .imap_service import exchange_refresh_token, fetch_latest_code
+from .imap_service import (
+    ImapServiceError,
+    exchange_graph_refresh_token,
+    exchange_refresh_token,
+    fetch_latest_code_chatai,
+    fetch_latest_code,
+    fetch_latest_code_graph,
+)
 
 
 AUTH_URL = "https://auth.openai.com/oauth/authorize"
@@ -377,9 +384,48 @@ async def _poll_outlook_code(account: dict[str, Any], emit: EventCallback) -> st
     attempts = int(settings.get("registration", {}).get("otp_poll_attempts", 20))
     interval = float(settings.get("registration", {}).get("otp_poll_interval_seconds", 3))
     emit("waiting_code", "正在等待 OpenAI 邮箱验证码", "INFO")
-    access_token = await exchange_refresh_token(account["client_id"], account["refresh_token"])
+    graph_access_token = ""
+    imap_access_token = ""
+    graph_error = ""
+    use_chatai = bool(settings.get("imap", {}).get("use_chatai_fetcher", True))
+    local_fallback = bool(settings.get("imap", {}).get("local_fallback", False))
     for attempt in range(1, attempts + 1):
-        code = await asyncio.to_thread(fetch_latest_code, account["email"], access_token)
+        code = None
+        if use_chatai:
+            try:
+                code = await fetch_latest_code_chatai(account["email"], account["client_id"], account["refresh_token"])
+            except Exception as exc:
+                if attempt == 1:
+                    message = f"Chatai 取件失败：{exc}"
+                    if local_fallback:
+                        message += "，将尝试本地 Graph/IMAP"
+                    emit(None, message, "WARN")
+        if not code and not local_fallback:
+            emit(None, f"暂未收到验证码（{attempt}/{attempts}）", "INFO")
+            await asyncio.sleep(interval)
+            continue
+        if not code and not graph_access_token and not graph_error:
+            try:
+                graph_access_token = await exchange_graph_refresh_token(account["client_id"], account["refresh_token"])
+            except Exception as exc:
+                graph_error = str(exc)
+                emit(None, f"Microsoft Graph 取件初始化失败，将尝试 IMAP：{graph_error}", "WARN")
+        if not code and graph_access_token:
+            try:
+                code = await fetch_latest_code_graph(account["email"], graph_access_token)
+            except Exception as exc:
+                graph_error = str(exc)
+                graph_access_token = ""
+                emit(None, f"Microsoft Graph 取件失败，将尝试 IMAP：{graph_error}", "WARN")
+        if not code:
+            if not imap_access_token:
+                try:
+                    imap_access_token = await exchange_refresh_token(account["client_id"], account["refresh_token"])
+                except Exception as exc:
+                    if graph_error:
+                        raise ImapServiceError(f"Graph 与 IMAP 取件均不可用。Graph: {graph_error}; IMAP: {exc}") from exc
+                    raise
+            code = await asyncio.to_thread(fetch_latest_code, account["email"], imap_access_token)
         if code:
             return code
         emit(None, f"暂未收到验证码（{attempt}/{attempts}）", "INFO")
@@ -492,42 +538,21 @@ class OpenAIRegistrationProvider:
                 detail = _response_error_summary(signup_resp)
                 raise OpenAIRegistrationError(f"OpenAI authorize/continue 失败: HTTP {signup_resp.status_code} {detail}")
 
-            emit("submitting", "正在提交账号密码", "INFO")
-            pwd_sentinel = auth_core.generate_payload(
-                did=did,
-                flow="username_password_create",
-                proxy=str(settings.get("registration", {}).get("proxy") or ""),
-                user_agent=user_agent,
-                impersonate="chrome",
-                ctx=ctx,
+            signup_data = signup_resp.json()
+            continue_url = str(signup_data.get("continue_url") or "").strip()
+            page_type = str((signup_data.get("page") or {}).get("type") or "").strip()
+            if continue_url or page_type:
+                emit(None, f"OpenAI 下一步：{page_type or '-'} {continue_url or '-'}", "INFO")
+            use_passwordless = "log-in" in continue_url or "password" in continue_url
+            otp_endpoint = (
+                "https://auth.openai.com/api/accounts/passwordless/send-otp"
+                if use_passwordless
+                else "https://auth.openai.com/api/accounts/email-otp/send"
             )
-            pwd_headers = _oai_headers(
-                did,
-                {"Referer": "https://auth.openai.com/create-account/password", "content-type": "application/json"},
+            otp_referer = continue_url or (
+                "https://auth.openai.com/log-in/password" if use_passwordless else "https://auth.openai.com/email-verification"
             )
-            if pwd_sentinel:
-                pwd_headers["openai-sentinel-token"] = pwd_sentinel
-            pwd_resp = _post_with_retry(
-                session,
-                "https://auth.openai.com/api/accounts/user/register",
-                headers=pwd_headers,
-                json_body={"password": password, "username": email},
-                proxies=proxies,
-            )
-            if pwd_resp.status_code != 200:
-                detail = _response_error_summary(pwd_resp)
-                if "account_creation_failed" in detail or "Failed to create account" in detail:
-                    raise OpenAIRegistrationError(
-                        "OpenAI 拒绝创建账号：account_creation_failed。"
-                        "通常表示当前 IP、邮箱或注册环境触发风控，请更换代理/IP或邮箱后重试。"
-                        f"原始返回: HTTP {pwd_resp.status_code} {detail}"
-                    )
-                raise OpenAIRegistrationError(f"OpenAI 密码注册失败: HTTP {pwd_resp.status_code} {detail}")
-
-            send_headers = _oai_headers(
-                did,
-                {"Referer": "https://auth.openai.com/create-account/password", "content-type": "application/json"},
-            )
+            emit("submitting", "正在请求 OpenAI 邮箱验证码", "INFO")
             send_sentinel = auth_core.generate_payload(
                 did=did,
                 flow="authorize_continue",
@@ -536,15 +561,25 @@ class OpenAIRegistrationProvider:
                 impersonate="chrome",
                 ctx=ctx,
             )
+            send_headers = _oai_headers(
+                did,
+                {"Referer": otp_referer, "content-type": "application/json"},
+            )
             if send_sentinel:
                 send_headers["openai-sentinel-token"] = send_sentinel
-            _post_with_retry(
+            send_resp = _post_with_retry(
                 session,
-                "https://auth.openai.com/api/accounts/email-otp/send",
+                otp_endpoint,
                 headers=send_headers,
-                json_body={},
+                json_body={} if not use_passwordless else None,
                 proxies=proxies,
             )
+            if send_resp.status_code != 200:
+                detail = _response_error_summary(send_resp)
+                raise OpenAIRegistrationError(f"OpenAI 邮箱验证码发送失败: HTTP {send_resp.status_code} {detail}")
+            send_detail = _response_error_summary(send_resp)
+            if send_detail:
+                emit(None, f"OpenAI 邮箱验证码请求已提交：{send_detail}", "INFO")
 
             code = await _poll_outlook_code(account, emit)
             emit("code_received", f"已收到 OpenAI 验证码：{code}", "SUCCESS")
