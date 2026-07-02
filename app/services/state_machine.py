@@ -60,9 +60,13 @@ def create_tasks(account_ids: list[int], username: str | None = None, age: int |
     return task_ids
 
 
-async def run_task_ids_concurrently(task_ids: list[int], concurrency: int | None = None) -> dict:
+def registration_concurrency(concurrency: int | None = None) -> int:
     max_concurrency = int(concurrency or settings["registration"].get("concurrency", 1) or 1)
-    max_concurrency = max(1, min(50, max_concurrency))
+    return max(1, min(50, max_concurrency))
+
+
+async def run_task_ids_concurrently(task_ids: list[int], concurrency: int | None = None) -> dict:
+    max_concurrency = registration_concurrency(concurrency)
 
     import asyncio
 
@@ -163,16 +167,23 @@ async def run_unfinished_accounts(concurrency: int | None = None) -> dict:
 
     register_account_ids = list_account_ids_by_status(0)
     invite_account_ids = list_account_ids_by_status(1)
-    task_ids = create_tasks(register_account_ids)
-    max_concurrency = int(concurrency or settings["registration"].get("concurrency", 1) or 1)
-    max_concurrency = max(1, min(50, max_concurrency))
+    task_ids: list[int] = []
+    max_concurrency = registration_concurrency(concurrency)
     semaphore = asyncio.Semaphore(max_concurrency)
 
     async def guarded(coro):
         async with semaphore:
             return await coro
 
-    register_jobs = [guarded(run_task(task_id)) for task_id in task_ids]
+    async def create_and_run_register_task(account_id: int) -> dict:
+        created = create_tasks([account_id])
+        if not created:
+            return {"account_id": account_id, "status": "failed", "error": "task_not_created"}
+        task_id = created[0]
+        task_ids.append(task_id)
+        return await run_task(task_id)
+
+    register_jobs = [guarded(create_and_run_register_task(account_id)) for account_id in register_account_ids]
     invite_jobs = [guarded(run_invite_for_account(account_id)) for account_id in invite_account_ids]
     results = await asyncio.gather(*register_jobs, *invite_jobs, return_exceptions=True)
     failed = sum(

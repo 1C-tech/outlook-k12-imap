@@ -193,7 +193,7 @@ def submit_callback_url(
         headers={"Content-Type": "application/x-www-form-urlencoded", "Accept": "application/json"},
         proxies=proxies,
         verify=_ssl_verify(),
-        timeout=30,
+        timeout=int(settings.get("registration", {}).get("http_timeout_seconds", 30)),
         impersonate="chrome110",
     )
     if response.status_code != 200:

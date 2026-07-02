@@ -27,7 +27,8 @@ async def exchange_refresh_token(client_id: str, refresh_token: str) -> str:
         "refresh_token": refresh_token,
         "scope": "https://outlook.office.com/IMAP.AccessAsUser.All offline_access",
     }
-    async with httpx.AsyncClient(timeout=20) as client:
+    timeout = float(settings["imap"].get("timeout_seconds", 20))
+    async with httpx.AsyncClient(timeout=timeout) as client:
         resp = await client.post(settings["imap"]["token_url"], data=payload)
     if resp.status_code != 200:
         raise ImapServiceError(f"token exchange failed: HTTP {resp.status_code}")
@@ -92,4 +93,3 @@ def fetch_latest_code(email_address: str, access_token: str, folders: Iterable[s
                 if code:
                     return code
     return None
-

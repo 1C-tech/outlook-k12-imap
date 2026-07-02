@@ -3,6 +3,7 @@ import pytest
 from app.database import init_db
 from app.config import settings
 from app.services.account_service import import_accounts
+from app.services import state_machine
 from app.services.state_machine import create_tasks, get_task, run_task
 from app.services.openai_registration import OpenAIRegistrationError, submit_callback_url
 
@@ -40,3 +41,32 @@ def test_submit_callback_url_rejects_state_mismatch():
             expected_state="expected",
             code_verifier="verifier",
         )
+
+
+@pytest.mark.asyncio
+async def test_run_unfinished_creates_registration_tasks_inside_concurrency_slots(monkeypatch):
+    settings["registration"]["concurrency"] = 1
+    import_accounts(
+        "one@example.com----pwd----cid----rt\n"
+        "two@example.com----pwd----cid----rt\n"
+        "three@example.com----pwd----cid----rt"
+    )
+
+    original_create_tasks = state_machine.create_tasks
+    create_batches: list[list[int]] = []
+
+    def tracking_create_tasks(account_ids, username=None, age=None):
+        create_batches.append(list(account_ids))
+        return original_create_tasks(account_ids, username, age)
+
+    async def fake_run_task(task_id: int):
+        return {"id": task_id, "status": "success"}
+
+    monkeypatch.setattr(state_machine, "create_tasks", tracking_create_tasks)
+    monkeypatch.setattr(state_machine, "run_task", fake_run_task)
+
+    result = await state_machine.run_unfinished_accounts()
+
+    assert result["concurrency"] == 1
+    assert result["created"] == 3
+    assert create_batches == [[1], [2], [3]]

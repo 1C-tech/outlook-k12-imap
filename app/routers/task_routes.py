@@ -13,6 +13,7 @@ from ..services.state_machine import (
     get_task,
     list_tasks,
     preview_unfinished_accounts,
+    registration_concurrency,
     run_task,
     run_task_ids_concurrently,
     run_unfinished_accounts,
@@ -77,15 +78,16 @@ def run_by_account_status(req: RunByAccountStatusReq, background: BackgroundTask
 @router.post("/api/tasks/run_unfinished")
 def run_unfinished(background: BackgroundTasks):
     preview = preview_unfinished_accounts()
+    concurrency = registration_concurrency()
     if preview["total"] == 0:
         write_log("INFO", "没有需要处理的账号")
-        return {"status": "success", "message": "没有需要处理的账号", **preview}
+        return {"status": "success", "message": "没有需要处理的账号", **preview, "concurrency": concurrency}
     write_log(
         "INFO",
-        f"已启动未完成账号处理：未注册 {preview['registration_count']} 个，待邀请 {preview['invite_count']} 个",
+        f"已启动未完成账号处理：未注册 {preview['registration_count']} 个，待邀请 {preview['invite_count']} 个，并发 {concurrency}",
     )
     background.add_task(_run_unfinished_accounts_sync, None)
-    return {"status": "success", "message": "已启动未完成账号处理", **preview}
+    return {"status": "success", "message": "已启动未完成账号处理", **preview, "concurrency": concurrency}
 
 
 @router.get("/api/tasks/{task_id}")
