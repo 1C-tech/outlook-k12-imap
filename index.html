@@ -41,7 +41,10 @@
           <section v-if="currentTab === 'dashboard'" class="view">
             <div class="view-head">
               <h2>控制台日志</h2>
-              <button class="primary" @click="loadAll">刷新</button>
+              <div class="button-row">
+                <button class="primary" @click="runRunnableTasks" :disabled="!runnableTasks.length">运行待处理任务</button>
+                <button @click="loadAll">刷新</button>
+              </div>
             </div>
             <div class="filters">
               <input v-model="logFilters.email" placeholder="账号">
