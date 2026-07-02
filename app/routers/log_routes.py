@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
 
 from ..auth import verify_token
-from ..services.log_service import get_log, query_logs, stats
+from ..services.log_service import clear_logs, get_log, query_logs, stats
 
 
 router = APIRouter(dependencies=[Depends(verify_token)])
@@ -31,6 +31,11 @@ def log_stats(task_id: int | None = None):
     return stats(task_id)
 
 
+@router.delete("/api/logs")
+def clear():
+    return {"status": "success", "deleted": clear_logs()}
+
+
 @router.get("/api/logs/stream")
 async def stream(task_id: int | None = None):
     async def generator():
@@ -52,4 +57,3 @@ def detail(log_id: int):
     if not item:
         raise HTTPException(status_code=404, detail="log not found")
     return item
-

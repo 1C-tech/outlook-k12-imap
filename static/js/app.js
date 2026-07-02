@@ -12,7 +12,6 @@ createApp({
       isDark: localStorage.getItem("ui_theme_mode") === "dark",
       tabs: [
         { id: "dashboard", label: "控制台日志", icon: "▦" },
-        { id: "tasks", label: "注册任务", icon: "□" },
         { id: "accounts", label: "微软邮箱", icon: "@" },
         { id: "codex", label: "Codex", icon: "◇" },
         { id: "settings", label: "设置", icon: "⚙" },
@@ -20,6 +19,9 @@ createApp({
       importText: "",
       importResult: null,
       accountSearch: "",
+      accountStatusFilter: "",
+      runAccountStatus: 0,
+      runLimit: "",
       selectedAccountIds: [],
       accounts: [],
       accountPage: {},
@@ -43,6 +45,13 @@ createApp({
     },
     runnableTasks() {
       return this.tasks.filter((task) => ["pending", "failed", "stopped"].includes(task.status));
+    },
+    accountStatusOptions() {
+      return [
+        { value: 0, label: "未注册" },
+        { value: 1, label: "注册完成未邀请" },
+        { value: 2, label: "注册完成并邀请成功" },
+      ];
     },
   },
   methods: {
@@ -96,7 +105,6 @@ createApp({
       this.notice = "";
       const loaders = {
         accounts: () => this.loadAccounts(),
-        tasks: () => this.loadTasks(),
         dashboard: () => this.loadLogs(),
         settings: () => this.loadSettings(),
       };
@@ -119,6 +127,7 @@ createApp({
     },
     async loadAccounts() {
       const q = new URLSearchParams({ page: 1, page_size: 50, search: this.accountSearch || "" });
+      if (this.accountStatusFilter !== "") q.set("status", this.accountStatusFilter);
       const data = await this.api(`/api/accounts?${q}`);
       this.accounts = data.data;
       this.accountPage = data;
@@ -130,12 +139,19 @@ createApp({
         method: "POST",
         body: JSON.stringify({ raw_text: this.importText }),
       });
-      this.notice = `导入完成：成功 ${this.importResult.count} 条，失败 ${this.importResult.failed} 条`;
+      this.notice = `导入完成：新增 ${this.importResult.count} 条，覆盖 ${this.importResult.updated || 0} 条，失败 ${this.importResult.failed} 条`;
       await this.loadAccounts();
     },
     async deleteAccount(id) {
       await this.api("/api/accounts", { method: "DELETE", body: JSON.stringify({ ids: [id] }) });
       this.notice = "账号已删除";
+      await this.loadAccounts();
+    },
+    async deleteSelectedAccounts() {
+      if (!this.selectedAccountIds.length) return;
+      const data = await this.api("/api/accounts", { method: "DELETE", body: JSON.stringify({ ids: this.selectedAccountIds }) });
+      this.notice = `已删除 ${data.deleted} 个账号`;
+      this.selectedAccountIds = [];
       await this.loadAccounts();
     },
     async createAndRun(id) {
@@ -158,6 +174,19 @@ createApp({
       this.currentTab = "dashboard";
       await this.loadAll();
     },
+    async runAccountsByStatus() {
+      const body = {
+        account_status: Number(this.runAccountStatus),
+        limit: this.runLimit ? Number(this.runLimit) : null,
+        concurrency: Number(this.settings.registration?.concurrency || 1),
+      };
+      const created = await this.api("/api/tasks/run_by_account_status", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      this.notice = `已从匹配状态账号创建 ${created.created} 个注册任务`;
+      await this.loadAll();
+    },
     async loadTasks() {
       const data = await this.api("/api/tasks?page=1&page_size=50");
       this.tasks = data.data;
@@ -172,6 +201,12 @@ createApp({
       await Promise.all(this.runnableTasks.map((task) => this.startTask(task.id)));
       this.notice = `已启动 ${this.runnableTasks.length} 个待处理任务`;
       setTimeout(() => this.loadAll().catch((err) => { this.notice = err.message; }), 1000);
+    },
+    async clearLogs() {
+      const data = await this.api("/api/logs", { method: "DELETE" });
+      this.logs = [];
+      this.logPage = { total: 0 };
+      this.notice = `已清空 ${data.deleted} 条日志`;
     },
     async loadLogs() {
       const q = new URLSearchParams({ page: 1, page_size: 80 });

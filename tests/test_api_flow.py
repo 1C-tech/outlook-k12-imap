@@ -33,6 +33,34 @@ def test_import_create_start_and_logs():
     logs = client.get("/api/logs", params={"task_id": task_id}).json()
     assert logs["total"] >= 5
 
+    accounts_after = client.get("/api/accounts", params={"status": 1}).json()
+    assert accounts_after["total"] >= 1
+
+    cleared = client.delete("/api/logs")
+    assert cleared.status_code == 200
+    assert cleared.json()["deleted"] >= 5
+    assert client.get("/api/logs").json()["total"] == 0
+
+
+def test_run_by_account_status_creates_and_runs_matching_accounts():
+    client = _client_with_token()
+    imported = client.post(
+        "/api/accounts/import",
+        json={"raw_text": "a@example.com----pwd----cid----rt\nb@example.com----pwd----cid----rt"},
+    )
+    assert imported.status_code == 200
+
+    started = client.post("/api/tasks/run_by_account_status", json={"account_status": 0, "concurrency": 2})
+    assert started.status_code == 200
+    payload = started.json()
+    assert payload["created"] == 2
+    assert len(payload["task_ids"]) == 2
+
+    remaining = client.get("/api/accounts", params={"status": 0}).json()
+    assert remaining["total"] == 0
+    registered = client.get("/api/accounts", params={"status": 1}).json()
+    assert registered["total"] >= 2
+
 
 def test_settings_roundtrip():
     client = _client_with_token()

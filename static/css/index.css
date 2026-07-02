@@ -187,6 +187,17 @@ body.theme-dark .sidebar button {
   flex-wrap: wrap;
 }
 
+.button-row input,
+.button-row select {
+  width: auto;
+  min-width: 128px;
+}
+
+.button-row input[type="number"] {
+  width: 96px;
+  min-width: 96px;
+}
+
 .view-head h2 {
   margin: 0;
   font-size: 20px;
@@ -324,6 +335,21 @@ body.theme-dark .sidebar button {
 .status-failed {
   color: #b42318;
   background: #fff0ee;
+}
+
+.account-status-0 {
+  color: #475467;
+  background: #f2f4f7;
+}
+
+.account-status-1 {
+  color: #155eef;
+  background: #e8f0ff;
+}
+
+.account-status-2 {
+  color: #067647;
+  background: #e8f7ef;
 }
 
 .settings-grid {

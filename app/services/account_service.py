@@ -12,9 +12,21 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 @dataclass
 class ImportResult:
     count: int = 0
+    updated: int = 0
     duplicated: int = 0
     failed: int = 0
     errors: list[dict] = field(default_factory=list)
+
+
+ACCOUNT_STATUS_UNREGISTERED = 0
+ACCOUNT_STATUS_REGISTERED_NOT_INVITED = 1
+ACCOUNT_STATUS_INVITED = 2
+
+ACCOUNT_STATUS_LABELS = {
+    ACCOUNT_STATUS_UNREGISTERED: "未注册",
+    ACCOUNT_STATUS_REGISTERED_NOT_INVITED: "注册完成未邀请",
+    ACCOUNT_STATUS_INVITED: "注册完成并邀请成功",
+}
 
 
 def parse_account_line(line: str) -> tuple[str, str, str, str]:
@@ -39,15 +51,22 @@ def import_accounts(raw_text: str) -> ImportResult:
                     continue
                 try:
                     email, password, client_id, refresh_token = parse_account_line(line)
-                    cur = conn.execute(
+                    existed = conn.execute("SELECT 1 FROM ms_accounts WHERE email = ?", (email,)).fetchone() is not None
+                    conn.execute(
                         """
-                        INSERT OR IGNORE INTO ms_accounts(email, password, client_id, refresh_token)
-                        VALUES (?, ?, ?, ?)
+                        INSERT INTO ms_accounts(email, password, client_id, refresh_token, status)
+                        VALUES (?, ?, ?, ?, ?)
+                        ON CONFLICT(email) DO UPDATE SET
+                            password = excluded.password,
+                            client_id = excluded.client_id,
+                            refresh_token = excluded.refresh_token,
+                            updated_at = CURRENT_TIMESTAMP
                         """,
-                        (email, password, client_id, refresh_token),
+                        (email, password, client_id, refresh_token, ACCOUNT_STATUS_UNREGISTERED),
                     )
-                    if cur.rowcount == 0:
+                    if existed:
                         result.duplicated += 1
+                        result.updated += 1
                     else:
                         result.count += 1
                 except Exception as exc:
@@ -80,13 +99,31 @@ def list_accounts(page: int = 1, page_size: int = 50, search: str | None = None,
             """,
             [*params, page_size, (page - 1) * page_size],
         ).fetchall()
-    return {"data": [dict(row) for row in rows], "total": total, "page": page, "page_size": page_size}
+    data = []
+    for row in rows:
+        item = dict(row)
+        item["status_label"] = ACCOUNT_STATUS_LABELS.get(int(item["status"]), "未知")
+        data.append(item)
+    return {"data": data, "total": total, "page": page, "page_size": page_size, "status_labels": ACCOUNT_STATUS_LABELS}
+
+
+def list_account_ids_by_status(status: int, limit: int | None = None) -> list[int]:
+    sql = "SELECT id FROM ms_accounts WHERE status = ? ORDER BY id ASC"
+    params: list = [int(status)]
+    if limit is not None and int(limit) > 0:
+        sql += " LIMIT ?"
+        params.append(int(limit))
+    with connect() as conn:
+        return [int(row["id"]) for row in conn.execute(sql, params).fetchall()]
 
 
 def get_account(account_id: int, include_secret: bool = False) -> dict | None:
     fields = "*" if include_secret else "id, email, status, remark, created_at, updated_at"
     with connect() as conn:
-        return row_to_dict(conn.execute(f"SELECT {fields} FROM ms_accounts WHERE id = ?", (account_id,)).fetchone())
+        account = row_to_dict(conn.execute(f"SELECT {fields} FROM ms_accounts WHERE id = ?", (account_id,)).fetchone())
+        if account:
+            account["status_label"] = ACCOUNT_STATUS_LABELS.get(int(account["status"]), "未知")
+        return account
 
 
 def update_account(account_id: int, status: int | None = None, remark: str | None = None) -> bool:
@@ -116,4 +153,3 @@ def delete_accounts(ids: list[int]) -> int:
         with connect() as conn:
             cur = conn.execute(f"DELETE FROM ms_accounts WHERE id IN ({placeholders})", clean_ids)
             return cur.rowcount
-

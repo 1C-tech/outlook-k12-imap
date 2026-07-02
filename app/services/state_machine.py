@@ -2,7 +2,13 @@ from __future__ import annotations
 
 from ..config import settings
 from ..database import connect, write_lock
-from .account_service import get_account
+from .account_service import (
+    ACCOUNT_STATUS_INVITED,
+    ACCOUNT_STATUS_REGISTERED_NOT_INVITED,
+    get_account,
+    list_account_ids_by_status,
+    update_account,
+)
 from .k12_service import request_join_workspace, validate_workspace_id
 from .log_service import write_log
 from .registration_provider import get_provider, random_profile
@@ -50,6 +56,34 @@ def create_tasks(account_ids: list[int], username: str | None = None, age: int |
     for task_id, account_id, email in created_logs:
         write_log("INFO", "Registration task created", task_id=task_id, account_id=account_id, email=email)
     return task_ids
+
+
+async def run_task_ids_concurrently(task_ids: list[int], concurrency: int | None = None) -> dict:
+    max_concurrency = int(concurrency or settings["registration"].get("concurrency", 1) or 1)
+    max_concurrency = max(1, min(50, max_concurrency))
+
+    import asyncio
+
+    semaphore = asyncio.Semaphore(max_concurrency)
+
+    async def run_one(task_id: int) -> dict:
+        async with semaphore:
+            return await run_task(task_id)
+
+    results = await asyncio.gather(*(run_one(task_id) for task_id in task_ids), return_exceptions=True)
+    failed = sum(1 for item in results if isinstance(item, Exception) or (isinstance(item, dict) and item.get("status") == "failed"))
+    return {
+        "task_ids": task_ids,
+        "completed": len(task_ids),
+        "failed": failed,
+        "concurrency": max_concurrency,
+    }
+
+
+def create_tasks_by_account_status(status: int, limit: int | None = None) -> dict:
+    account_ids = list_account_ids_by_status(status, limit)
+    task_ids = create_tasks(account_ids)
+    return {"account_ids": account_ids, "task_ids": task_ids, "created": len(task_ids)}
 
 
 def get_task(task_id: int) -> dict | None:
@@ -108,6 +142,7 @@ async def run_task(task_id: int) -> dict:
 
     try:
         session = await provider.register(account, task["username"], int(task["age"]), emit)
+        update_account(account["id"], status=ACCOUNT_STATUS_REGISTERED_NOT_INVITED)
         update_task_status(
             task_id,
             "code_received",
@@ -129,6 +164,7 @@ async def run_task(task_id: int) -> dict:
                     status_code = invite_result.get("status_code")
                     message = invite_result.get("message")
                     raise RuntimeError(f"K12 invite failed: HTTP {status_code} {message}")
+                update_account(account["id"], status=ACCOUNT_STATUS_INVITED)
                 write_log("SUCCESS", "K12 workspace invite request submitted", task_id, account["id"], account["email"])
 
         update_task_status(task_id, "success")

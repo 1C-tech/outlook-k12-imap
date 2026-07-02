@@ -48,8 +48,13 @@
             <div class="view-head">
               <h2>控制台日志</h2>
               <div class="button-row">
-                <button class="primary" @click="runRunnableTasks" :disabled="!runnableTasks.length">运行待处理任务</button>
+                <select v-model.number="runAccountStatus" title="运行账号状态">
+                  <option v-for="item in accountStatusOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+                </select>
+                <input v-model="runLimit" type="number" min="1" placeholder="数量">
+                <button class="primary" @click="runAccountsByStatus">按状态运行</button>
                 <button @click="loadAll">刷新</button>
+                <button @click="clearLogs">清空日志</button>
               </div>
             </div>
             <div class="filters">
@@ -87,15 +92,23 @@
               <div class="button-row">
                 <button class="primary" @click="importAccounts">开始导入</button>
                 <button @click="createAndRunSelected" :disabled="!selectedAccountIds.length">运行选中账号</button>
+                <button @click="deleteSelectedAccounts" :disabled="!selectedAccountIds.length">删除选中</button>
               </div>
             </div>
             <textarea v-model="importText" class="import-box" placeholder="email----password----client_id----refresh_token"></textarea>
             <div v-if="importResult" class="result-bar">
-              成功 {{ importResult.count }} 条，重复 {{ importResult.duplicated }} 条，失败 {{ importResult.failed }} 条
+              新增 {{ importResult.count }} 条，覆盖 {{ importResult.updated || 0 }} 条，失败 {{ importResult.failed }} 条
             </div>
             <div class="view-head compact">
               <h2>已导入账号</h2>
-              <input v-model="accountSearch" placeholder="搜索账号" @keyup.enter="loadAccounts">
+              <div class="button-row">
+                <input v-model="accountSearch" placeholder="搜索账号" @keyup.enter="loadAccounts">
+                <select v-model="accountStatusFilter" @change="loadAccounts">
+                  <option value="">全部状态</option>
+                  <option v-for="item in accountStatusOptions" :key="item.value" :value="item.value">{{ item.label }}</option>
+                </select>
+                <button @click="loadAccounts">筛选</button>
+              </div>
             </div>
             <table>
               <thead>
@@ -106,38 +119,12 @@
                   <td><input type="checkbox" :value="account.id" v-model="selectedAccountIds"></td>
                   <td>{{ account.id }}</td>
                   <td>{{ account.email }}</td>
-                  <td>{{ account.status }}</td>
+                  <td><span :class="'status account-status-' + account.status">{{ account.status_label || account.status }}</span></td>
                   <td>{{ account.created_at }}</td>
                   <td>
                     <button @click="createAndRun(account.id)">创建并启动任务</button>
                     <button @click="deleteAccount(account.id)">删除</button>
                   </td>
-                </tr>
-              </tbody>
-            </table>
-          </section>
-
-          <section v-if="currentTab === 'tasks'" class="view">
-            <div class="view-head">
-              <h2>注册任务</h2>
-              <div class="button-row">
-                <button class="primary" @click="runRunnableTasks" :disabled="!runnableTasks.length">运行待处理任务</button>
-                <button @click="loadTasks">刷新</button>
-              </div>
-            </div>
-            <p v-if="!tasks.length" class="empty">暂无注册任务。到“微软邮箱”页导入账号后，可以直接点击“运行选中账号”。</p>
-            <table>
-              <thead>
-                <tr><th>ID</th><th>邮箱</th><th>状态</th><th>用户名</th><th>年龄</th><th>操作</th></tr>
-              </thead>
-              <tbody>
-                <tr v-for="task in tasks" :key="task.id">
-                  <td>{{ task.id }}</td>
-                  <td>{{ task.email }}</td>
-                  <td><span :class="'status status-' + task.status">{{ task.status }}</span></td>
-                  <td>{{ task.username }}</td>
-                  <td>{{ task.age }}</td>
-                  <td><button @click="startTask(task.id)">启动/重试</button></td>
                 </tr>
               </tbody>
             </table>
@@ -149,7 +136,7 @@
               Codex 菜单已预留。当前阶段不会自动获取或展示 chatgpt.com 的 session；请在合法、手动授权的后续接入中配置自己的会话来源。
             </div>
             <div class="result-bar">
-              注册任务页会显示当前适配器的执行结果；真实 OpenAI 注册依赖可用的 auth_core、代理和 Outlook IMAP OAuth2 配置。
+              注册任务执行结果会通过控制台日志展示；真实 OpenAI 注册依赖可用的 auth_core、代理和 Outlook IMAP OAuth2 配置。
             </div>
           </section>
 

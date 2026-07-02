@@ -1,5 +1,5 @@
 from app.database import init_db
-from app.services.account_service import import_accounts, list_accounts, parse_account_line
+from app.services.account_service import get_account, import_accounts, list_accounts, parse_account_line
 
 
 def test_parse_account_line():
@@ -14,12 +14,16 @@ def test_import_accounts_counts(tmp_path, monkeypatch):
     # comment
     one@example.com----pwd----cid----rt
     bad-line
-    one@example.com----pwd----cid----rt
+    one@example.com----pwd2----cid2----rt2
     two@example.com----pwd----cid----rt
     """
     result = import_accounts(raw)
     assert result.count == 2
     assert result.duplicated == 1
+    assert result.updated == 1
     assert result.failed == 1
     assert list_accounts()["total"] == 2
-
+    account = get_account(1, include_secret=True)
+    assert account["password"] == "pwd2"
+    assert account["client_id"] == "cid2"
+    assert account["refresh_token"] == "rt2"

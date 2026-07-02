@@ -6,7 +6,15 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel
 
 from ..auth import verify_token
-from ..services.state_machine import create_tasks, get_task, list_tasks, run_task, update_task_status
+from ..services.state_machine import (
+    create_tasks,
+    create_tasks_by_account_status,
+    get_task,
+    list_tasks,
+    run_task,
+    run_task_ids_concurrently,
+    update_task_status,
+)
 
 
 router = APIRouter(dependencies=[Depends(verify_token)])
@@ -16,10 +24,20 @@ def _run_task_sync(task_id: int) -> None:
     asyncio.run(run_task(task_id))
 
 
+def _run_task_ids_sync(task_ids: list[int], concurrency: int | None = None) -> None:
+    asyncio.run(run_task_ids_concurrently(task_ids, concurrency))
+
+
 class CreateTaskReq(BaseModel):
     account_ids: list[int]
     username: str | None = None
     age: int | None = None
+
+
+class RunByAccountStatusReq(BaseModel):
+    account_status: int = 0
+    limit: int | None = None
+    concurrency: int | None = None
 
 
 class VerifyReq(BaseModel):
@@ -39,6 +57,14 @@ def tasks(page: int = Query(1), page_size: int = Query(50), status: str | None =
 @router.post("/api/tasks")
 def create(req: CreateTaskReq):
     return {"status": "success", "task_ids": create_tasks(req.account_ids, req.username, req.age)}
+
+
+@router.post("/api/tasks/run_by_account_status")
+def run_by_account_status(req: RunByAccountStatusReq, background: BackgroundTasks):
+    created = create_tasks_by_account_status(req.account_status, req.limit)
+    if created["task_ids"]:
+        background.add_task(_run_task_ids_sync, created["task_ids"], req.concurrency)
+    return {"status": "success", **created, "concurrency": req.concurrency}
 
 
 @router.get("/api/tasks/{task_id}")

@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 from datetime import datetime
 
-from ..database import connect
+from ..database import connect, write_lock
 
 
 def write_log(
@@ -76,6 +76,14 @@ def get_log(log_id: int) -> dict | None:
         return dict(row) if row else None
 
 
+def clear_logs() -> int:
+    with write_lock():
+        with connect() as conn:
+            total = conn.execute("SELECT COUNT(*) FROM reg_logs").fetchone()[0]
+            conn.execute("DELETE FROM reg_logs")
+            return int(total)
+
+
 def stats(task_id: int | None = None) -> dict:
     where = "WHERE task_id = ?" if task_id else ""
     params = [task_id] if task_id else []
@@ -85,4 +93,3 @@ def stats(task_id: int | None = None) -> dict:
     result = {"total": total, "generated_at": datetime.utcnow().isoformat() + "Z"}
     result.update({row["level"]: row["count"] for row in rows})
     return result
-
