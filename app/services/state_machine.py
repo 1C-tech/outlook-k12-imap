@@ -88,6 +88,18 @@ def create_tasks_by_account_status(status: int, limit: int | None = None) -> dic
     return {"account_ids": account_ids, "task_ids": task_ids, "created": len(task_ids)}
 
 
+def preview_unfinished_accounts() -> dict:
+    register_account_ids = list_account_ids_by_status(0)
+    invite_account_ids = list_account_ids_by_status(1)
+    return {
+        "registration_account_ids": register_account_ids,
+        "invite_account_ids": invite_account_ids,
+        "registration_count": len(register_account_ids),
+        "invite_count": len(invite_account_ids),
+        "total": len(register_account_ids) + len(invite_account_ids),
+    }
+
+
 def _extract_access_token(value: str | None) -> str:
     raw = (value or "").strip()
     if not raw:

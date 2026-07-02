@@ -84,6 +84,10 @@ def test_run_unfinished_registers_and_invites_pending_accounts():
     started = client.post("/api/tasks/run_unfinished")
     assert started.status_code == 200
     assert started.json()["status"] == "success"
+    assert started.json()["registration_count"] == 1
+    assert started.json()["invite_count"] == 1
+    logs = client.get("/api/logs").json()
+    assert any("已启动未完成账号处理" in item["message"] for item in logs["data"])
 
     unregistered = client.get("/api/accounts", params={"status": 0}).json()
     assert unregistered["total"] == 0

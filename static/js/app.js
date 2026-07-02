@@ -170,7 +170,8 @@ createApp({
     },
     async runUnfinishedAccounts() {
       const result = await this.api("/api/tasks/run_unfinished", { method: "POST" });
-      this.notice = result.message || "已开始处理未完成账号：未注册账号从注册开始，未邀请账号从邀请开始";
+      this.notice = `${result.message || "已启动"}：未注册 ${result.registration_count || 0} 个，待邀请 ${result.invite_count || 0} 个`;
+      await this.loadLogs();
       setTimeout(() => this.loadAll().catch((err) => { this.notice = err.message; }), 1000);
     },
     async loadTasks() {
