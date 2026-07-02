@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+
 from ..config import settings
 from ..database import connect, write_lock
 from .account_service import (
@@ -84,6 +86,99 @@ def create_tasks_by_account_status(status: int, limit: int | None = None) -> dic
     account_ids = list_account_ids_by_status(status, limit)
     task_ids = create_tasks(account_ids)
     return {"account_ids": account_ids, "task_ids": task_ids, "created": len(task_ids)}
+
+
+def _extract_access_token(value: str | None) -> str:
+    raw = (value or "").strip()
+    if not raw:
+        return ""
+    if raw.startswith("{"):
+        try:
+            return str((json.loads(raw) or {}).get("access_token") or "").strip()
+        except Exception:
+            return ""
+    return raw
+
+
+def latest_account_access_token(account_id: int) -> str:
+    with connect() as conn:
+        row = conn.execute(
+            """
+            SELECT access_token
+            FROM reg_tasks
+            WHERE account_id = ? AND access_token IS NOT NULL AND access_token != ''
+            ORDER BY id DESC
+            LIMIT 1
+            """,
+            (int(account_id),),
+        ).fetchone()
+    return _extract_access_token(row["access_token"] if row else "")
+
+
+async def run_invite_for_account(account_id: int) -> dict:
+    account = get_account(account_id, include_secret=True)
+    if not account:
+        raise ValueError("account not found")
+    workspace_id = settings["k12"]["workspace_id"]
+    validate_workspace_id(workspace_id)
+    write_log("INFO", "开始补发 K12 邀请", account_id=account["id"], email=account["email"])
+    access_token = latest_account_access_token(account["id"])
+    if not access_token:
+        update_account(account["id"], remark="缺少可用 OpenAI access_token，无法补邀请")
+        write_log("ERROR", "缺少可用 OpenAI access_token，无法补邀请", account_id=account["id"], email=account["email"])
+        return {"account_id": account["id"], "ok": False, "error": "missing_access_token"}
+    if access_token.startswith("mock_at_") or settings["registration"].get("provider") == "mock":
+        update_account(account["id"], status=ACCOUNT_STATUS_INVITED, remark="Mock 模式已标记邀请成功")
+        write_log("SUCCESS", "Mock 模式已标记 K12 邀请成功", account_id=account["id"], email=account["email"])
+        return {"account_id": account["id"], "ok": True, "mock": True}
+    invite_result = await request_join_workspace(
+        access_token,
+        workspace_id,
+        settings["k12"].get("invite_mode", "request"),
+    )
+    if not invite_result.get("ok"):
+        message = f"补发 K12 邀请失败: HTTP {invite_result.get('status_code')} {invite_result.get('message')}"
+        update_account(account["id"], remark=message)
+        write_log("ERROR", message, account_id=account["id"], email=account["email"])
+        return {"account_id": account["id"], "ok": False, "error": message}
+    update_account(account["id"], status=ACCOUNT_STATUS_INVITED, remark=None)
+    write_log("SUCCESS", "K12 邀请补发成功", account_id=account["id"], email=account["email"])
+    return {"account_id": account["id"], "ok": True}
+
+
+async def run_unfinished_accounts(concurrency: int | None = None) -> dict:
+    import asyncio
+
+    register_account_ids = list_account_ids_by_status(0)
+    invite_account_ids = list_account_ids_by_status(1)
+    task_ids = create_tasks(register_account_ids)
+    max_concurrency = int(concurrency or settings["registration"].get("concurrency", 1) or 1)
+    max_concurrency = max(1, min(50, max_concurrency))
+    semaphore = asyncio.Semaphore(max_concurrency)
+
+    async def guarded(coro):
+        async with semaphore:
+            return await coro
+
+    register_jobs = [guarded(run_task(task_id)) for task_id in task_ids]
+    invite_jobs = [guarded(run_invite_for_account(account_id)) for account_id in invite_account_ids]
+    results = await asyncio.gather(*register_jobs, *invite_jobs, return_exceptions=True)
+    failed = sum(
+        1
+        for item in results
+        if isinstance(item, Exception)
+        or (isinstance(item, dict) and item.get("status") == "failed")
+        or (isinstance(item, dict) and item.get("ok") is False)
+    )
+    return {
+        "registration_account_ids": register_account_ids,
+        "invite_account_ids": invite_account_ids,
+        "task_ids": task_ids,
+        "created": len(task_ids),
+        "invite_count": len(invite_account_ids),
+        "failed": failed,
+        "concurrency": max_concurrency,
+    }
 
 
 def get_task(task_id: int) -> dict | None:

@@ -13,15 +13,12 @@ createApp({
       tabs: [
         { id: "dashboard", label: "控制台日志", icon: "▦" },
         { id: "accounts", label: "微软邮箱", icon: "@" },
-        { id: "codex", label: "Codex", icon: "◇" },
         { id: "settings", label: "设置", icon: "⚙" },
       ],
       importText: "",
       importResult: null,
       accountSearch: "",
       accountStatusFilter: "",
-      runAccountStatus: 0,
-      runLimit: "",
       selectedAccountIds: [],
       accounts: [],
       accountPage: {},
@@ -42,9 +39,6 @@ createApp({
   computed: {
     allAccountsSelected() {
       return this.accounts.length > 0 && this.accounts.every((account) => this.selectedAccountIds.includes(account.id));
-    },
-    runnableTasks() {
-      return this.tasks.filter((task) => ["pending", "failed", "stopped"].includes(task.status));
     },
     accountStatusOptions() {
       return [
@@ -174,18 +168,10 @@ createApp({
       this.currentTab = "dashboard";
       await this.loadAll();
     },
-    async runAccountsByStatus() {
-      const body = {
-        account_status: Number(this.runAccountStatus),
-        limit: this.runLimit ? Number(this.runLimit) : null,
-        concurrency: Number(this.settings.registration?.concurrency || 1),
-      };
-      const created = await this.api("/api/tasks/run_by_account_status", {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
-      this.notice = `已从匹配状态账号创建 ${created.created} 个注册任务`;
-      await this.loadAll();
+    async runUnfinishedAccounts() {
+      const result = await this.api("/api/tasks/run_unfinished", { method: "POST" });
+      this.notice = result.message || "已开始处理未完成账号：未注册账号从注册开始，未邀请账号从邀请开始";
+      setTimeout(() => this.loadAll().catch((err) => { this.notice = err.message; }), 1000);
     },
     async loadTasks() {
       const data = await this.api("/api/tasks?page=1&page_size=50");
@@ -196,11 +182,6 @@ createApp({
       await this.api(`/api/tasks/${id}/start`, { method: "POST" });
       this.notice = `任务 ${id} 已启动`;
       setTimeout(() => this.loadAll().catch((err) => { this.notice = err.message; }), 800);
-    },
-    async runRunnableTasks() {
-      await Promise.all(this.runnableTasks.map((task) => this.startTask(task.id)));
-      this.notice = `已启动 ${this.runnableTasks.length} 个待处理任务`;
-      setTimeout(() => this.loadAll().catch((err) => { this.notice = err.message; }), 1000);
     },
     async clearLogs() {
       const data = await this.api("/api/logs/clear", { method: "POST" });

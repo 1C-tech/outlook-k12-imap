@@ -1,5 +1,6 @@
 from fastapi.testclient import TestClient
 
+from app.database import connect
 from app.main import app
 
 
@@ -60,6 +61,36 @@ def test_run_by_account_status_creates_and_runs_matching_accounts():
     assert remaining["total"] == 0
     registered = client.get("/api/accounts", params={"status": 1}).json()
     assert registered["total"] >= 2
+
+
+def test_run_unfinished_registers_and_invites_pending_accounts():
+    client = _client_with_token()
+    imported = client.post(
+        "/api/accounts/import",
+        json={"raw_text": "new@example.com----pwd----cid----rt\ninvite@example.com----pwd----cid----rt"},
+    )
+    assert imported.status_code == 200
+    with connect() as conn:
+        invite_id = conn.execute("SELECT id FROM ms_accounts WHERE email = ?", ("invite@example.com",)).fetchone()["id"]
+        conn.execute("UPDATE ms_accounts SET status = 1 WHERE id = ?", (invite_id,))
+        conn.execute(
+            """
+            INSERT INTO reg_tasks(account_id, email, status, access_token, workspace_id)
+            VALUES (?, ?, 'success', ?, ?)
+            """,
+            (invite_id, "invite@example.com", "mock_at_existing", "631e1603-06cf-4f0b-b79b-d09fbfcfe98d"),
+        )
+
+    started = client.post("/api/tasks/run_unfinished")
+    assert started.status_code == 200
+    assert started.json()["status"] == "success"
+
+    unregistered = client.get("/api/accounts", params={"status": 0}).json()
+    assert unregistered["total"] == 0
+    registered_not_invited = client.get("/api/accounts", params={"status": 1}).json()
+    assert registered_not_invited["total"] >= 1
+    invited = client.get("/api/accounts", params={"status": 2}).json()
+    assert invited["total"] >= 1
 
 
 def test_settings_roundtrip():

@@ -13,6 +13,7 @@ from ..services.state_machine import (
     list_tasks,
     run_task,
     run_task_ids_concurrently,
+    run_unfinished_accounts,
     update_task_status,
 )
 
@@ -26,6 +27,10 @@ def _run_task_sync(task_id: int) -> None:
 
 def _run_task_ids_sync(task_ids: list[int], concurrency: int | None = None) -> None:
     asyncio.run(run_task_ids_concurrently(task_ids, concurrency))
+
+
+def _run_unfinished_accounts_sync(concurrency: int | None = None) -> None:
+    asyncio.run(run_unfinished_accounts(concurrency))
 
 
 class CreateTaskReq(BaseModel):
@@ -65,6 +70,12 @@ def run_by_account_status(req: RunByAccountStatusReq, background: BackgroundTask
     if created["task_ids"]:
         background.add_task(_run_task_ids_sync, created["task_ids"], req.concurrency)
     return {"status": "success", **created, "concurrency": req.concurrency}
+
+
+@router.post("/api/tasks/run_unfinished")
+def run_unfinished(background: BackgroundTasks):
+    background.add_task(_run_unfinished_accounts_sync, None)
+    return {"status": "success"}
 
 
 @router.get("/api/tasks/{task_id}")
