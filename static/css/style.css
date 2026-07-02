@@ -1,77 +1,156 @@
 :root {
   color-scheme: light;
-  --bg: #f6f7f9;
+  --bg: #f5f7fb;
+  --bg-soft: #eef3fb;
   --surface: #ffffff;
-  --surface-2: #eef2f6;
-  --text: #1d2430;
+  --surface-raised: #ffffff;
+  --surface-2: #f7f9fc;
+  --text: #1f2937;
+  --heading: #111827;
   --muted: #667085;
-  --line: #d7dee8;
-  --primary: #2563eb;
+  --subtle: #8a94a6;
+  --line: #e5e9f2;
+  --line-strong: #d8deea;
+  --primary: #3370ff;
+  --primary-hover: #245bdb;
+  --primary-soft: #e8f0ff;
   --primary-ink: #ffffff;
-  --success: #15803d;
-  --warn: #b45309;
-  --error: #dc2626;
+  --success: #12b76a;
+  --success-soft: #e8f7ef;
+  --warn: #f79009;
+  --warn-soft: #fff5df;
+  --error: #f04438;
+  --error-soft: #fff0ee;
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, .04);
+  --shadow-md: 0 8px 24px rgba(31, 41, 55, .08);
 }
 
 body.theme-dark {
   color-scheme: dark;
-  --bg: #17191f;
-  --surface: #20242c;
-  --surface-2: #2b303a;
-  --text: #edf0f5;
-  --muted: #aab3c2;
-  --line: #3a414f;
-  --primary: #6aa4ff;
-  --primary-ink: #07111f;
+  --bg: #101828;
+  --bg-soft: #182230;
+  --surface: #182230;
+  --surface-raised: #202b3c;
+  --surface-2: #243247;
+  --text: #e4e7ec;
+  --heading: #f9fafb;
+  --muted: #a4adbd;
+  --subtle: #858f9f;
+  --line: #344054;
+  --line-strong: #475467;
+  --primary: #6693ff;
+  --primary-hover: #86a8ff;
+  --primary-soft: rgba(102, 147, 255, .16);
+  --primary-ink: #08111f;
+  --shadow-sm: none;
+  --shadow-md: 0 12px 28px rgba(0, 0, 0, .24);
 }
 
 * { box-sizing: border-box; }
+
 body {
   margin: 0;
-  background: var(--bg);
+  background:
+    linear-gradient(180deg, rgba(51, 112, 255, .06), transparent 260px),
+    var(--bg);
   color: var(--text);
-  font-family: Aptos, "Segoe UI", "Microsoft YaHei", sans-serif;
+  font-family: "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Segoe UI", sans-serif;
+  font-size: 14px;
   letter-spacing: 0;
 }
 
 [v-cloak] { display: none; }
+
 button, input, textarea, select {
   font: inherit;
 }
+
 button {
-  border: 1px solid var(--line);
+  min-height: 34px;
+  border: 1px solid var(--line-strong);
   border-radius: 6px;
   background: var(--surface);
   color: var(--text);
-  padding: 8px 12px;
+  padding: 7px 13px;
   cursor: pointer;
+  transition: background .16s ease, border-color .16s ease, color .16s ease, box-shadow .16s ease;
 }
-button:hover { border-color: var(--primary); }
-button:disabled { opacity: .55; cursor: wait; }
+
+button:hover {
+  border-color: var(--primary);
+  color: var(--primary);
+}
+
+button:focus-visible,
+input:focus,
+textarea:focus,
+select:focus {
+  outline: none;
+  border-color: var(--primary);
+  box-shadow: 0 0 0 3px rgba(51, 112, 255, .14);
+}
+
+button:disabled {
+  opacity: .52;
+  cursor: not-allowed;
+}
+
 .primary {
   background: var(--primary);
   color: var(--primary-ink);
   border-color: var(--primary);
+  box-shadow: 0 4px 12px rgba(51, 112, 255, .18);
 }
+
+.primary:hover {
+  background: var(--primary-hover);
+  border-color: var(--primary-hover);
+  color: var(--primary-ink);
+}
+
 input, textarea, select {
-  border: 1px solid var(--line);
+  width: 100%;
+  border: 1px solid var(--line-strong);
   background: var(--surface);
   color: var(--text);
   border-radius: 6px;
-  padding: 9px 10px;
+  padding: 8px 10px;
+  transition: border-color .16s ease, box-shadow .16s ease, background .16s ease;
 }
+
+textarea {
+  line-height: 1.6;
+}
+
 table {
   width: 100%;
-  border-collapse: collapse;
+  border-collapse: separate;
+  border-spacing: 0;
   background: var(--surface);
   border: 1px solid var(--line);
   border-radius: 8px;
   overflow: hidden;
+  box-shadow: var(--shadow-sm);
 }
+
 th, td {
   text-align: left;
-  padding: 10px 12px;
+  padding: 11px 14px;
   border-bottom: 1px solid var(--line);
   font-size: 14px;
+  vertical-align: middle;
 }
-th { color: var(--muted); background: var(--surface-2); }
+
+th {
+  color: #475467;
+  background: var(--surface-2);
+  font-weight: 600;
+}
+
+tbody tr:hover td {
+  background: color-mix(in srgb, var(--primary-soft) 38%, transparent);
+}
+
+tr:last-child td {
+  border-bottom: 0;
+}

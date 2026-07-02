@@ -6,16 +6,16 @@
   <title>outlook-k12-imap</title>
   <script src="/static/js/tailwind.min.js"></script>
   <script src="/static/js/vue.global.js"></script>
-  <link rel="stylesheet" href="/static/css/style.css?v=20260702-4">
-  <link rel="stylesheet" href="/static/css/index.css?v=20260702-4">
+  <link rel="stylesheet" href="/static/css/style.css?v=20260702-5">
+  <link rel="stylesheet" href="/static/css/index.css?v=20260702-5">
 </head>
 <body>
   <div id="app" v-cloak>
     <section v-if="!token" class="login-shell">
       <form class="login-panel" @submit.prevent="login">
         <h1>outlook-k12-imap 管理后台</h1>
-        <input v-model="password" type="password" placeholder="管理密码" autocomplete="current-password">
-        <button type="submit" :disabled="loading">{{ loading ? '登录中...' : '登录' }}</button>
+        <input v-model="password" type="password" placeholder="管理员密码" autocomplete="current-password">
+        <button class="primary" type="submit" :disabled="loading">{{ loading ? '登录中...' : '登录' }}</button>
         <p v-if="error" class="error-text">{{ error }}</p>
         <span class="version">v0.1.0</span>
       </form>
@@ -23,21 +23,27 @@
 
     <section v-else class="app-shell">
       <header class="topbar">
-        <button class="icon-btn mobile-only" @click="mobileNavOpen = !mobileNavOpen" title="菜单">☰</button>
-        <strong>outlook-k12-imap</strong>
+        <div class="brand">
+          <button class="icon-btn mobile-only" @click="mobileNavOpen = !mobileNavOpen" title="菜单">☰</button>
+          <span class="brand-mark">K12</span>
+          <strong class="brand-title">outlook-k12-imap</strong>
+        </div>
         <div class="topbar-actions">
-          <button class="icon-btn" @click="toggleTheme" :title="isDark ? '浅色' : '深色'">{{ isDark ? '☀' : '◐' }}</button>
+          <button class="icon-btn" @click="toggleTheme" :title="isDark ? '浅色模式' : '深色模式'">{{ isDark ? '☀' : '●' }}</button>
           <button class="text-btn" @click="logout">退出</button>
         </div>
       </header>
+
       <div class="workspace">
         <aside :class="['sidebar', { open: mobileNavOpen }]">
           <button type="button" v-for="tab in tabs" :key="tab.id" :class="{ active: currentTab === tab.id }" @click="switchTab(tab.id)">
             <span>{{ tab.icon }}</span>{{ tab.label }}
           </button>
         </aside>
+
         <main class="content">
           <div v-if="notice" class="notice-bar">{{ notice }}</div>
+
           <section v-if="currentTab === 'dashboard'" class="view">
             <div class="view-head">
               <h2>控制台日志</h2>
@@ -48,7 +54,13 @@
             </div>
             <div class="filters">
               <input v-model="logFilters.email" placeholder="账号">
-              <select v-model="logFilters.level"><option value="">全部级别</option><option>INFO</option><option>SUCCESS</option><option>WARN</option><option>ERROR</option></select>
+              <select v-model="logFilters.level">
+                <option value="">全部级别</option>
+                <option>INFO</option>
+                <option>SUCCESS</option>
+                <option>WARN</option>
+                <option>ERROR</option>
+              </select>
               <input v-model="logFilters.task_id" placeholder="任务 ID">
               <button @click="loadLogs">筛选</button>
             </div>
@@ -86,7 +98,9 @@
               <input v-model="accountSearch" placeholder="搜索账号" @keyup.enter="loadAccounts">
             </div>
             <table>
-              <thead><tr><th><input type="checkbox" :checked="allAccountsSelected" @change="toggleAllAccounts"></th><th>ID</th><th>邮箱</th><th>状态</th><th>创建时间</th><th>操作</th></tr></thead>
+              <thead>
+                <tr><th><input type="checkbox" :checked="allAccountsSelected" @change="toggleAllAccounts"></th><th>ID</th><th>邮箱</th><th>状态</th><th>创建时间</th><th>操作</th></tr>
+              </thead>
               <tbody>
                 <tr v-for="account in accounts" :key="account.id">
                   <td><input type="checkbox" :value="account.id" v-model="selectedAccountIds"></td>
@@ -111,9 +125,11 @@
                 <button @click="loadTasks">刷新</button>
               </div>
             </div>
-            <p v-if="!tasks.length" class="empty">暂无注册任务。到“微软邮箱”页导入账号后，可直接点击“运行选中账号”。</p>
+            <p v-if="!tasks.length" class="empty">暂无注册任务。到“微软邮箱”页导入账号后，可以直接点击“运行选中账号”。</p>
             <table>
-              <thead><tr><th>ID</th><th>邮箱</th><th>状态</th><th>用户名</th><th>年龄</th><th>操作</th></tr></thead>
+              <thead>
+                <tr><th>ID</th><th>邮箱</th><th>状态</th><th>用户名</th><th>年龄</th><th>操作</th></tr>
+              </thead>
               <tbody>
                 <tr v-for="task in tasks" :key="task.id">
                   <td>{{ task.id }}</td>
@@ -130,10 +146,10 @@
           <section v-if="currentTab === 'codex'" class="view settings-grid">
             <h2>Codex</h2>
             <div class="result-bar">
-              Codex 菜单已预留。当前第一阶段不会自动获取或展示 chatgpt.com 的 session；请在合法、手动授权的后续接入中配置自己的会话来源。
+              Codex 菜单已预留。当前阶段不会自动获取或展示 chatgpt.com 的 session；请在合法、手动授权的后续接入中配置自己的会话来源。
             </div>
             <div class="result-bar">
-              注册任务页当前显示的是 Mock 适配器的模拟流程结果，不代表真实 OpenAI / ChatGPT 账号注册成功。
+              注册任务页会显示当前适配器的执行结果；真实 OpenAI 注册依赖可用的 auth_core、代理和 Outlook IMAP OAuth2 配置。
             </div>
           </section>
 
@@ -155,6 +171,6 @@
       </div>
     </section>
   </div>
-  <script src="/static/js/app.js?v=20260702-4"></script>
+  <script src="/static/js/app.js?v=20260702-5"></script>
 </body>
 </html>

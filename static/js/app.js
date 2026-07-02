@@ -12,7 +12,7 @@ createApp({
       isDark: localStorage.getItem("ui_theme_mode") === "dark",
       tabs: [
         { id: "dashboard", label: "控制台日志", icon: "▦" },
-        { id: "tasks", label: "注册任务", icon: "▶" },
+        { id: "tasks", label: "注册任务", icon: "□" },
         { id: "accounts", label: "微软邮箱", icon: "@" },
         { id: "codex", label: "Codex", icon: "◇" },
         { id: "settings", label: "设置", icon: "⚙" },
@@ -130,17 +130,19 @@ createApp({
         method: "POST",
         body: JSON.stringify({ raw_text: this.importText }),
       });
+      this.notice = `导入完成：成功 ${this.importResult.count} 条，失败 ${this.importResult.failed} 条`;
       await this.loadAccounts();
     },
     async deleteAccount(id) {
       await this.api("/api/accounts", { method: "DELETE", body: JSON.stringify({ ids: [id] }) });
+      this.notice = "账号已删除";
       await this.loadAccounts();
     },
     async createAndRun(id) {
       const created = await this.api("/api/tasks", { method: "POST", body: JSON.stringify({ account_ids: [id] }) });
       if (created.task_ids[0]) await this.startTask(created.task_ids[0]);
-      this.currentTab = "tasks";
-      await this.loadTasks();
+      this.currentTab = "dashboard";
+      await this.loadAll();
     },
     toggleAllAccounts(event) {
       this.selectedAccountIds = event.target.checked ? this.accounts.map((account) => account.id) : [];
@@ -153,7 +155,7 @@ createApp({
       });
       await Promise.all((created.task_ids || []).map((id) => this.startTask(id)));
       this.selectedAccountIds = [];
-      this.currentTab = "tasks";
+      this.currentTab = "dashboard";
       await this.loadAll();
     },
     async loadTasks() {
@@ -163,10 +165,12 @@ createApp({
     },
     async startTask(id) {
       await this.api(`/api/tasks/${id}/start`, { method: "POST" });
+      this.notice = `任务 ${id} 已启动`;
       setTimeout(() => this.loadAll().catch((err) => { this.notice = err.message; }), 800);
     },
     async runRunnableTasks() {
       await Promise.all(this.runnableTasks.map((task) => this.startTask(task.id)));
+      this.notice = `已启动 ${this.runnableTasks.length} 个待处理任务`;
       setTimeout(() => this.loadAll().catch((err) => { this.notice = err.message; }), 1000);
     },
     async loadLogs() {
@@ -184,6 +188,7 @@ createApp({
     async saveSettings() {
       await this.api("/api/settings", { method: "PUT", body: JSON.stringify(this.settings) });
       await this.api("/api/settings/reload", { method: "POST" });
+      this.notice = "配置已保存";
       await this.loadSettings();
     },
   },
