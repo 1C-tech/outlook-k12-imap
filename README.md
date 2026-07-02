@@ -11,6 +11,14 @@ python -m app.main
 
 Open `http://127.0.0.1:8000`. The default admin password is `admin`.
 
+For the real OpenAI registration provider on Windows, use Python 3.12 because the
+referenced `openai-cpa` `auth_core.pyd` does not load under Python 3.13:
+
+```bash
+py -3.12 -m pip install -r requirements.txt
+py -3.12 -m app.main
+```
+
 ## Account Import Format
 
 ```text
